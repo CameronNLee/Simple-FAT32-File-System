@@ -2,6 +2,7 @@
 #define _FS_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 /** Maximum filename length (including the NULL character) */
 #define FS_FILENAME_LEN 16
