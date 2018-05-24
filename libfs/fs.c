@@ -16,8 +16,13 @@ struct __attribute__((__packed__)) superblock {
 	uint8_t total_fat_blocks;
 };
 
-struct __attribute__((__packed__)) fat {
-	uint16_t *entry; // malloc(4096)?
+struct __attribute__((__packed__)) fat_block {
+	uint16_t *entries; // malloc(4096)?
+};
+
+struct __attribute__((__packed__)) fat_blocks {
+    // Fill this in!
+	// struct fat_block* ;
 };
 
 struct __attribute__((__packed__)) root {
@@ -27,7 +32,9 @@ struct __attribute__((__packed__)) root {
 };
 
 static struct superblock* sb = NULL;
-
+static struct fat_block* fat = NULL;
+static struct fat_blocks* fbs = NULL;
+static struct root* root = NULL;
 int fs_mount(const char *diskname)
 {
 	sb = malloc(sizeof(struct superblock));
@@ -57,6 +64,20 @@ int fs_mount(const char *diskname)
 	if (block_disk_count() != sb->total_blocks) {
 		return -1;
 	}
+
+    // begin loading metadata for the fat struct
+    fat = malloc(sizeof(struct fat_block));
+    fat->entries = malloc(BLOCK_SIZE);
+
+    int total_fat_counter = (int)sb->total_fat_blocks;
+    size_t read_counter = 1;
+    while (total_fat_counter != 0) {
+        if (block_read(read_counter, fat->entries)) {
+            return -1;
+        }
+        read_counter++;
+        --total_fat_counter;
+    }
 
 	free(buf);
 	return 0;
