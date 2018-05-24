@@ -26,7 +26,7 @@ struct __attribute__((__packed__)) root {
 	uint16_t first_db_index;
 };
 
-static struct superblock* sb;
+static struct superblock* sb = NULL;
 
 int fs_mount(const char *diskname)
 {
@@ -48,7 +48,15 @@ int fs_mount(const char *diskname)
 	memcpy(&sb->total_data_blocks, (buf+14), 2);
 	memcpy(&sb->total_fat_blocks, (buf+16), 1);
 
+	// testing for matching signature
+	if (strcmp((char *)sb->signature, "ECS150FS") != 0) {
+		return -1;
+	}
 
+	// testing for matching block count
+	if (block_disk_count() != sb->total_blocks) {
+		return -1;
+	}
 
 	free(buf);
 	return 0;
@@ -62,7 +70,22 @@ int fs_umount(void)
 
 int fs_info(void)
 {
-	/* TODO: Phase 1 */
+	// sb being NULL means it never changed.
+    // if sb never changed, then no virtual disk
+    // was opened in the first place.
+    if (!sb) {
+        return -1;
+    }
+
+    printf("FS Info:\n");
+    printf("total_blk_count=%d\n", sb->total_blocks);
+    printf("fat_blk_count=%d\n", sb->total_fat_blocks);
+    printf("rdir_blk=%d\n", sb->root_dir_index);
+    printf("data_blk=%d\n", sb->data_block_index);
+    printf("data_blk_count=%d\n", sb->total_data_blocks);
+    printf("fat_free_ratio=%d/%d\n", sb->total_data_blocks-1, sb->total_data_blocks);
+    printf("rdir_free_ratio=%d/%d\n", 128,128); // consider not hardcoding
+
 	return 0;
 }
 
@@ -119,4 +142,5 @@ int fs_read(int fd, void *buf, size_t count)
 	/* TODO: Phase 4 */
 	return 0;
 }
+
 
