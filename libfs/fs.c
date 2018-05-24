@@ -8,7 +8,7 @@
 #include "fs.h"
 
 struct __attribute__((__packed__)) superblock {
-    uint64_t signature; // ECS150FS
+    uint8_t *signature; // ECS150FS
 	uint16_t total_blocks;
 	uint16_t root_dir_index;
 	uint16_t data_block_index;
@@ -36,16 +36,19 @@ int fs_mount(const char *diskname)
 	}
 
 	void *buf = malloc(BLOCK_SIZE);
+	sb->signature = malloc(sizeof(uint8_t)*8); // 8 bytes allocated
 	// memset(buf, 0, BLOCK_SIZE);
 	if (block_read(0, buf) == -1) {
 		return -1;
 	}
-	memcpy(&sb->signature, buf, 8);
+	memcpy(sb->signature, buf, 8);
 	memcpy(&sb->total_blocks, (buf+8), 2);
 	memcpy(&sb->root_dir_index, (buf+10), 2);
 	memcpy(&sb->data_block_index, (buf+12), 2);
 	memcpy(&sb->total_data_blocks, (buf+14), 2);
-	memcpy(&sb->total_fat_blocks, (buf+15), 1);
+	memcpy(&sb->total_fat_blocks, (buf+16), 1);
+
+
 
 	free(buf);
 	return 0;
