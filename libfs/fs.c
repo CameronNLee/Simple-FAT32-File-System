@@ -2,15 +2,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "disk.h"
 #include "fs.h"
 
-/* TODO: Phase 1 */
+struct __attribute__((__packed__)) superblock {
+    uint64_t signature; // ECS150FS
+	uint16_t total_blocks;
+	uint16_t root_dir_index;
+	uint16_t data_block_index;
+	uint16_t total_data_blocks;
+	uint8_t total_fat_blocks;
+};
+
+struct __attribute__((__packed__)) fat {
+	uint16_t *entry; // malloc(4096)?
+};
+
+struct __attribute__((__packed__)) root {
+	uint8_t *filename;
+	uint32_t filesize;
+	uint16_t first_db_index;
+};
 
 int fs_mount(const char *diskname)
 {
-	/* TODO: Phase 1 */
+	if (block_disk_open(diskname) == -1) {
+		return -1;
+	}
+
+	void *buf = malloc(BLOCK_SIZE);
+	// memset(buf, 0, BLOCK_SIZE);
+	if (block_read(0, buf) == -1) {
+		return -1;
+	}
+
+	free(buf);
 	return 0;
 }
 
