@@ -17,12 +17,14 @@ struct __attribute__((__packed__)) superblock {
 };
 
 struct __attribute__((__packed__)) fat_block {
-	uint16_t *entries; // malloc(4096)?
+	uint16_t **entries; // malloc(4096*total_fat_blocks)?
+  //we have an array of entries.
+  //So each entry in the array is a FAT block
 };
 
 struct __attribute__((__packed__)) fat_blocks {
     // Fill this in!
-	// struct fat_block* ;
+	 // struct fat_block* arr_fat;
 };
 
 struct __attribute__((__packed__)) root {
@@ -32,9 +34,11 @@ struct __attribute__((__packed__)) root {
 };
 
 static struct superblock* sb = NULL;
-static struct fat_block* fat = NULL;
-static struct fat_blocks* fbs = NULL;
-static struct root* root = NULL;
+static struct fat_block* fat_array = NULL;
+// static struct fat_blocks* fat_array = NULL;
+//static struct root* root = NULL;
+
+
 int fs_mount(const char *diskname)
 {
 	sb = malloc(sizeof(struct superblock));
@@ -66,18 +70,34 @@ int fs_mount(const char *diskname)
 	}
 
     // begin loading metadata for the fat struct
-    fat = malloc(sizeof(struct fat_block));
-    fat->entries = malloc(BLOCK_SIZE);
+    // fat = malloc(sizeof(struct fat_block));
+    // fat->entries = malloc(BLOCK_SIZE);
+
+    printf("seg fault here?\n");
+    fat_array = malloc(sizeof(struct fat_block));
+    fat_array->entries = malloc(sb->total_fat_blocks);
+    printf("seg fault here?asdfsd\n");
+
+    for(int i = 0; i < sb->total_fat_blocks; i++){
+      fat_array->entries[i] = malloc(BLOCK_SIZE);
+    }
+
+
+
+    //fat_array->entries = malloc(BLOCK_SIZE * sb->total_fat_blocks);
 
     int total_fat_counter = (int)sb->total_fat_blocks;
     size_t read_counter = 1;
     while (total_fat_counter != 0) {
-        if (block_read(read_counter, fat->entries)) {
+        if (block_read(read_counter, fat_array->entries[read_counter-1])){
             return -1;
         }
         read_counter++;
         --total_fat_counter;
     }
+
+
+
 
 	free(buf);
 	return 0;
@@ -163,5 +183,3 @@ int fs_read(int fd, void *buf, size_t count)
 	/* TODO: Phase 4 */
 	return 0;
 }
-
-
