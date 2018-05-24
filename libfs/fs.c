@@ -8,7 +8,7 @@
 #include "fs.h"
 
 struct __attribute__((__packed__)) superblock {
-    uint8_t *signature; // ECS150FS
+	uint8_t *signature; // ECS150FS
 	uint16_t total_blocks;
 	uint16_t root_dir_index;
 	uint16_t data_block_index;
@@ -17,14 +17,10 @@ struct __attribute__((__packed__)) superblock {
 };
 
 struct __attribute__((__packed__)) fat_block {
-	uint16_t **entries; // malloc(4096*total_fat_blocks)?
-  //we have an array of entries.
-  //So each entry in the array is a FAT block
-};
-
-struct __attribute__((__packed__)) fat_blocks {
-    // Fill this in!
-	 // struct fat_block* arr_fat;
+	uint16_t **entries;
+	// we have an array of FAT blocks.
+	// each FAT block has an array of entries
+	// (2048 entries for a total of 4096 bytes)
 };
 
 struct __attribute__((__packed__)) root {
@@ -35,7 +31,6 @@ struct __attribute__((__packed__)) root {
 
 static struct superblock* sb = NULL;
 static struct fat_block* fat_array = NULL;
-// static struct fat_blocks* fat_array = NULL;
 //static struct root* root = NULL;
 
 
@@ -45,10 +40,9 @@ int fs_mount(const char *diskname)
 	if (block_disk_open(diskname) == -1) {
 		return -1;
 	}
-
-	void *buf = malloc(BLOCK_SIZE);
+	void *buf;
+	buf = malloc(BLOCK_SIZE);
 	sb->signature = malloc(sizeof(uint8_t)*8); // 8 bytes allocated
-	// memset(buf, 0, BLOCK_SIZE);
 	if (block_read(0, buf) == -1) {
 		return -1;
 	}
@@ -69,35 +63,30 @@ int fs_mount(const char *diskname)
 		return -1;
 	}
 
-    // begin loading metadata for the fat struct
-    // fat = malloc(sizeof(struct fat_block));
-    // fat->entries = malloc(BLOCK_SIZE);
+	// begin loading metadata for the fat struct
 
-    printf("seg fault here?\n");
-    fat_array = malloc(sizeof(struct fat_block));
-    fat_array->entries = malloc(sb->total_fat_blocks);
-    printf("seg fault here?asdfsd\n");
+	fat_array = malloc(sizeof(struct fat_block));
+	fat_array->entries = malloc(sb->total_fat_blocks);
 
-    for(int i = 0; i < sb->total_fat_blocks; i++){
-      fat_array->entries[i] = malloc(BLOCK_SIZE);
-    }
-
-
-
-    //fat_array->entries = malloc(BLOCK_SIZE * sb->total_fat_blocks);
-
-    int total_fat_counter = (int)sb->total_fat_blocks;
-    size_t read_counter = 1;
-    while (total_fat_counter != 0) {
-        if (block_read(read_counter, fat_array->entries[read_counter-1])){
-            return -1;
-        }
-        read_counter++;
-        --total_fat_counter;
-    }
+	// entries represents the array of fat blocks themselves
+	// entries[i] however is the array of fat block entries,
+	// per fat block. Hence, malloc 4096 bytes for
+	// each i index in entries[i].
+	for(int i = 0; i < sb->total_fat_blocks; i++){
+		fat_array->entries[i] = malloc(BLOCK_SIZE);
+	}
 
 
+	int total_fat_counter = (int)sb->total_fat_blocks;
+	size_t read_counter = 1;
 
+	while (total_fat_counter != 0) {
+		if (block_read(read_counter, fat_array->entries[read_counter-1])) {
+			return -1;
+		}
+		read_counter++;
+		--total_fat_counter;
+	}
 
 	free(buf);
 	return 0;
@@ -112,20 +101,24 @@ int fs_umount(void)
 int fs_info(void)
 {
 	// sb being NULL means it never changed.
-    // if sb never changed, then no virtual disk
-    // was opened in the first place.
-    if (!sb) {
-        return -1;
-    }
+	// if sb never changed, then no virtual disk
+	// was opened in the first place.
+	if (!sb) {
+		return -1;
+	}
 
-    printf("FS Info:\n");
-    printf("total_blk_count=%d\n", sb->total_blocks);
-    printf("fat_blk_count=%d\n", sb->total_fat_blocks);
-    printf("rdir_blk=%d\n", sb->root_dir_index);
-    printf("data_blk=%d\n", sb->data_block_index);
-    printf("data_blk_count=%d\n", sb->total_data_blocks);
-    printf("fat_free_ratio=%d/%d\n", sb->total_data_blocks-1, sb->total_data_blocks);
-    printf("rdir_free_ratio=%d/%d\n", 128,128); // consider not hardcoding
+	printf("FS Info:\n");
+	printf("total_blk_count=%d\n", sb->total_blocks);
+	printf("fat_blk_count=%d\n", sb->total_fat_blocks);
+	printf("rdir_blk=%d\n", sb->root_dir_index);
+	printf("data_blk=%d\n", sb->data_block_index);
+	printf("data_blk_count=%d\n", sb->total_data_blocks);
+	
+	printf("fat_free_ratio=%d/%d\n", 
+		   sb->total_data_blocks-1, sb->total_data_blocks);
+	
+	printf("rdir_free_ratio=%d/%d\n",
+		   FS_FILE_MAX_COUNT, FS_FILE_MAX_COUNT); // consider not hardcoding
 
 	return 0;
 }
