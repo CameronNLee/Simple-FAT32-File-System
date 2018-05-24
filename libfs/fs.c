@@ -26,8 +26,11 @@ struct __attribute__((__packed__)) root {
 	uint16_t first_db_index;
 };
 
+static struct superblock* sb;
+
 int fs_mount(const char *diskname)
 {
+	sb = malloc(sizeof(struct superblock));
 	if (block_disk_open(diskname) == -1) {
 		return -1;
 	}
@@ -37,6 +40,12 @@ int fs_mount(const char *diskname)
 	if (block_read(0, buf) == -1) {
 		return -1;
 	}
+	memcpy(&sb->signature, buf, 8);
+	memcpy(&sb->total_blocks, (buf+8), 2);
+	memcpy(&sb->root_dir_index, (buf+10), 2);
+	memcpy(&sb->data_block_index, (buf+12), 2);
+	memcpy(&sb->total_data_blocks, (buf+14), 2);
+	memcpy(&sb->total_fat_blocks, (buf+15), 1);
 
 	free(buf);
 	return 0;
