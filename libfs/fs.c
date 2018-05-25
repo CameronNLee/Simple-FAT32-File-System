@@ -24,9 +24,7 @@ struct __attribute__((__packed__)) fat_block {
 };
 
 struct __attribute__((__packed__)) root {
-	uint8_t *filename;
-	uint32_t filesize;
-	uint16_t first_db_index;
+	uint8_t **root_entries;
 };
 
 static struct superblock* sb = NULL;
@@ -90,23 +88,20 @@ int fs_mount(const char *diskname)
 
 	//Now we do the same thing for the root_global
 	//almost exactly the same as what we did for the superblock
-	root_global = malloc(sizeof(struct root));
-	if(block_read(sb->root_dir_index,buf) == -1){
-		return -1;
-	}
+    root_global = malloc(sizeof(struct root));
+    root_global->root_entries = malloc(sizeof(uint8_t)*FS_FILE_MAX_COUNT); // 128 entries
+    for (int i = 0; i < 128; ++i) {
+        root_global->root_entries[i] = malloc(sizeof(uint8_t)*FS_OPEN_MAX_COUNT); // 32 bytes per entry
+    }
 
-	root_global->filename = malloc(sizeof(uint8_t)*8); // 8 bytes allocated
+    if(block_read((size_t)sb->root_dir_index-1, root_global->root_entries) == -1){
+        return -1;
+    }
 
-	memcpy(root_global->filename, buf, 16);
+
+/*	memcpy(root_global->filename, buf, 16);
 	memcpy(&root_global->filesize, (buf+16), 4);
-	memcpy(&root_global->first_db_index, (buf+20), 2);
-
-
-	//Now we do it for the data blocks.
-
-
-
-
+	memcpy(&root_global->first_db_index, (buf+20), 2);*/
 	free(buf);
 	return 0;
 }
