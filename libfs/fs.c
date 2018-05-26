@@ -35,6 +35,7 @@ static struct superblock* sb = NULL;
 static struct fat_block* fat_array = NULL;
 static struct root* root_global = NULL;
 
+size_t file_count = 0; // note: find better non-global implementation
 
 int fs_mount(const char *diskname)
 {
@@ -69,7 +70,8 @@ int fs_mount(const char *diskname)
 	size_t read_counter = 1;
 
 	while (total_fat_counter != 0) {
-		if (block_read(read_counter, fat_array->entries[read_counter-1]) == -1) {
+		if (block_read(read_counter,
+                       fat_array->entries[read_counter-1]) == -1) {
 			return -1;
 		}
 		read_counter++;
@@ -80,43 +82,35 @@ int fs_mount(const char *diskname)
 	// 32 bytes * 128 entries
 	root_global = malloc(sizeof(struct root) * FS_FILE_MAX_COUNT);
 	if (block_read((size_t)sb->root_dir_index, root_global) == -1) {
-        return -1;
-    }
+		return -1;
+	}
 
 	return 0;
 }
 
 int fs_umount(void){
-
 	//First one is always the superblock
 	if(block_write(0, sb) == -1){
-			return -1;
+		return -1;
 	}
-
 	//Next is the FAT blocks
-	for(int i = 0; i < sb->total_fat_blocks; i++){
-			if(block_write((i+1), fat_array[i]) == -1){
-				return -1;
-			}
+	for(size_t i = 0; i < sb->total_fat_blocks; i++){
+		if(block_write((i+1), fat_array->entries[i]) == -1){
+			return -1;
+		}
 	}
-
 	//Afterwards is the root.
 	if(block_write(sb->root_dir_index, root_global) == -1){
-			return -1;
+		return -1;
 	}
-
 	//We then finally close it
 	if(block_disk_close() == -1){
 		return -1;
 	}
-
-	//Free everything now.
+	// Free the globals
 	free(sb);
 	free(root_global);
-	free(fat_array); 
-
-
-
+	free(fat_array);
 	return 0;
 }
 
@@ -147,7 +141,38 @@ int fs_info(void)
 
 int fs_create(const char *filename)
 {
-	/* TODO: Phase 2 */
+    // error checking if all root entries are
+    // already populated. i.e. 128 files present; no more can be added.
+    if (file_count == FS_FILE_MAX_COUNT) {
+        return -1;
+    }
+
+    // error checking for invalid filename
+    // we define "invalid" to be filenames with 0 bytes (empty)
+    // or above the 16 bytes specified
+	if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+        return -1;
+    }
+
+    // going through root entries seeing if filename already exists
+    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
+        if (strncmp( (char*)root_global[i].filename,
+                    filename, FS_FILENAME_LEN ) != 0) {
+            return -1;
+        }
+    } // end of error checks
+
+    // find first occurrence of an empty root entry
+    // (add file if first filename char is NULL char)
+    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
+        if (root_global[i].filename[0] == '\0') {
+            strcpy((char *)root_global[i].filename, filename);
+            root_global[i].filesize = 0;
+            root_global[i].first_db_index = 65535; // fat_EOC
+            break; // don't
+        }
+    }
+
 	return 0;
 }
 
