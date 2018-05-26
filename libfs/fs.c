@@ -180,9 +180,23 @@ int fs_create(const char *filename)
 	return 0;
 }
 
-int fs_delete(const char *filename)
-{
-	/* TODO: Phase 2 */
+int fs_delete(const char *filename){
+
+
+	//can't delte file that doesn't exist
+	for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
+			if (strncmp( (char*)root_global[i].filename,
+									filename, FS_FILENAME_LEN ) != 0) {
+					return -1;
+			}
+			else{
+				root_global[i].filename = "\0";
+				root_global[i].first_db_index = 0;
+				root_global[i].filesize = 0;
+			}
+			//TODO free the data.
+	}
+
 	return 0;
 }
 
