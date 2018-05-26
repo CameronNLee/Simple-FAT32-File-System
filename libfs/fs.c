@@ -7,25 +7,29 @@
 #include "disk.h"
 #include "fs.h"
 
-struct __attribute__((__packed__)) superblock {
-	uint8_t *signature; // ECS150FS
+struct superblock {
+	uint8_t signature[8]; // ECS150FS
 	uint16_t total_blocks;
 	uint16_t root_dir_index;
 	uint16_t data_block_index;
 	uint16_t total_data_blocks;
 	uint8_t total_fat_blocks;
-};
+	uint8_t padding[4079];
+}__attribute__((__packed__));
 
-struct __attribute__((__packed__)) fat_block {
-	uint16_t **entries;
+struct fat_block {
 	// we have an array of FAT blocks.
 	// each FAT block has an array of entries
 	// (2048 entries for a total of 4096 bytes)
-};
+	uint16_t **entries;
+}__attribute__((__packed__));
 
-struct __attribute__((__packed__)) root {
-	uint8_t **root_entries;
-};
+struct root {
+	uint8_t filename[FS_FILENAME_LEN];
+	uint32_t filesize;
+	uint16_t first_db_index;
+	uint8_t padding[10];
+}__attribute__((__packed__));
 
 static struct superblock* sb = NULL;
 static struct fat_block* fat_array = NULL;
@@ -38,31 +42,19 @@ int fs_mount(const char *diskname)
 	if (block_disk_open(diskname) == -1) {
 		return -1;
 	}
-	void *buf;
-	buf = malloc(BLOCK_SIZE);
-	sb->signature = malloc(sizeof(uint8_t)*8); // 8 bytes allocated
-	if (block_read(0, buf) == -1) {
+	if (block_read(0, sb) == -1) {
 		return -1;
 	}
-	memcpy(sb->signature, buf, 8);
-	memcpy(&sb->total_blocks, (buf+8), 2);
-	memcpy(&sb->root_dir_index, (buf+10), 2);
-	memcpy(&sb->data_block_index, (buf+12), 2);
-	memcpy(&sb->total_data_blocks, (buf+14), 2);
-	memcpy(&sb->total_fat_blocks, (buf+16), 1);
-
 	// testing for matching signature
-	if (strcmp((char *)sb->signature, "ECS150FS") != 0) {
+	if (strncmp((char *)sb->signature, "ECS150FS", 8) != 0) {
 		return -1;
 	}
-
 	// testing for matching block count
 	if (block_disk_count() != sb->total_blocks) {
 		return -1;
 	}
 
 	// begin loading metadata for the fat struct
-
 	fat_array = malloc(sizeof(struct fat_block));
 	fat_array->entries = malloc(sb->total_fat_blocks);
 
@@ -73,8 +65,6 @@ int fs_mount(const char *diskname)
 	for(int i = 0; i < sb->total_fat_blocks; i++){
 		fat_array->entries[i] = malloc(BLOCK_SIZE);
 	}
-
-
 	int total_fat_counter = (int)sb->total_fat_blocks;
 	size_t read_counter = 1;
 
@@ -85,24 +75,14 @@ int fs_mount(const char *diskname)
 		read_counter++;
 		--total_fat_counter;
 	}
-
 	//Now we do the same thing for the root_global
 	//almost exactly the same as what we did for the superblock
-    root_global = malloc(sizeof(struct root));
-    root_global->root_entries = malloc(sizeof(uint8_t)*FS_FILE_MAX_COUNT); // 128 entries
-    for (int i = 0; i < 128; ++i) {
-        root_global->root_entries[i] = malloc(sizeof(uint8_t)*FS_OPEN_MAX_COUNT); // 32 bytes per entry
-    }
-
-    if(block_read((size_t)sb->root_dir_index-1, root_global->root_entries) == -1){
+	// 32 bytes * 128 entries
+	root_global = malloc(sizeof(struct root) * FS_FILE_MAX_COUNT);
+	if (block_read((size_t)sb->root_dir_index, root_global) == -1) {
         return -1;
     }
 
-
-/*	memcpy(root_global->filename, buf, 16);
-	memcpy(&root_global->filesize, (buf+16), 4);
-	memcpy(&root_global->first_db_index, (buf+20), 2);*/
-	free(buf);
 	return 0;
 }
 
