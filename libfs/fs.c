@@ -35,8 +35,6 @@ static struct superblock* sb = NULL;
 static struct fat_block* fat_array = NULL;
 static struct root* root_global = NULL;
 
-size_t file_count = 0; // note: find better non-global implementation
-
 int fs_mount(const char *diskname)
 {
 	sb = malloc(sizeof(struct superblock));
@@ -90,7 +88,7 @@ int fs_mount(const char *diskname)
 
 int fs_umount(void){
 	//First one is always the superblock
-	if(block_write(0, sb) == -1){
+	if (block_write(0, sb) == -1) {
 		return -1;
 	}
 	//Next is the FAT blocks
@@ -143,9 +141,15 @@ int fs_create(const char *filename)
 {
     // error checking if all root entries are
     // already populated. i.e. 128 files present; no more can be added.
-    if (file_count == FS_FILE_MAX_COUNT) {
-        return -1;
-    }
+	int file_counter = 0; // temporary variable
+	for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
+		if (root_global[i].filename[0] == '\0') {
+			++file_counter;
+		}
+	}
+	if (file_counter == 128) {
+		return -1;
+	}
 
     // error checking for invalid filename
     // we define "invalid" to be filenames with 0 bytes (empty)
@@ -157,7 +161,7 @@ int fs_create(const char *filename)
     // going through root entries seeing if filename already exists
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
         if (strncmp( (char*)root_global[i].filename,
-                    filename, FS_FILENAME_LEN ) != 0) {
+                    filename, FS_FILENAME_LEN ) == 0) {
             return -1;
         }
     } // end of error checks
