@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "disk.h"
 #include "fs.h"
@@ -154,9 +155,9 @@ int fs_create(const char *filename)
     // error checking for invalid filename
     // we define "invalid" to be filenames with 0 bytes (empty)
     // or above the 16 bytes specified
-		if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
-	        return -1;
-	    }
+	if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+        return -1;
+    }
 
     // going through root entries seeing if filename already exists
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
@@ -180,34 +181,51 @@ int fs_create(const char *filename)
 	return 0;
 }
 
-int fs_delete(const char *filename){
+int fs_delete(const char *filename)
+{
 
-	//same as above. Check if file name is invalid
-	if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
-				return -1;
-		}
+	bool filename_exists = 0;
+    // Check if file name is invalid
+    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+        return -1;
+    }
 
-
-	//can't delte file that doesn't exist
+	// checking if filename is inside the filesystem.
+	// if it isn't, return -1 (can't delete file that doesn't exist)
 	for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-			if (strncmp( (char*)root_global[i].filename,
-									filename, FS_FILENAME_LEN ) != 0) {
-					return -1;
-			}
-			else{
-				root_global[i].filename = "\0";
-				root_global[i].first_db_index = 0;
-				root_global[i].filesize = 0;
-			}
-			//TODO free the data, check if filename is Open
+		if (strncmp((char *) root_global[i].filename,
+					filename, FS_FILENAME_LEN) == 0) {
+			filename_exists = 1;
+			root_global[i].filename[0] = '\0';
+			root_global[i].first_db_index = 0;
+			root_global[i].filesize = 0;
+			break;
+		}
 	}
+
+	if(!filename_exists) {
+		return -1; //checks for if filename is not found
+	}
+		//TODO free the data.
 
 	return 0;
 }
 
 int fs_ls(void)
 {
-	/* TODO: Phase 2 */
+	// sb being NULL implies nothing was mounted,
+	// since sb gets populated in fs_mount()
+	if (!sb) {
+		return -1;
+	}
+	printf("FS Ls:\n");
+	for (size_t i = 0; i < FS_FILE_MAX_COUNT; ++i) {
+		if (root_global[i].filename[0] != '\0') {
+			printf("file: %s, size: %d, data_blk: %d\n",
+				   root_global[i].filename, root_global[i].filesize,
+				   root_global[i].first_db_index);
+		}
+	}
 	return 0;
 }
 
