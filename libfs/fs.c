@@ -86,9 +86,37 @@ int fs_mount(const char *diskname)
 	return 0;
 }
 
-int fs_umount(void)
-{
-	/* TODO: Phase 1 */
+int fs_umount(void){
+
+	//First one is always the superblock
+	if(block_write(0, sb) == -1){
+			return -1;
+	}
+
+	//Next is the FAT blocks
+	for(int i = 0; i < sb->total_fat_blocks; i++){
+			if(block_write((i+1), fat_array[i]) == -1){
+				return -1;
+			}
+	}
+
+	//Afterwards is the root.
+	if(block_write(sb->root_dir_index, root_global) == -1){
+			return -1;
+	}
+
+	//We then finally close it
+	if(block_disk_close() == -1){
+		return -1;
+	}
+
+	//Free everything now.
+	free(sb);
+	free(root_global);
+	free(fat_array); 
+
+
+
 	return 0;
 }
 
