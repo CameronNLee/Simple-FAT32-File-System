@@ -154,9 +154,9 @@ int fs_create(const char *filename)
     // error checking for invalid filename
     // we define "invalid" to be filenames with 0 bytes (empty)
     // or above the 16 bytes specified
-	if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
-        return -1;
-    }
+		if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+	        return -1;
+	    }
 
     // going through root entries seeing if filename already exists
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
@@ -182,6 +182,11 @@ int fs_create(const char *filename)
 
 int fs_delete(const char *filename){
 
+	//same as above. Check if file name is invalid
+	if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+				return -1;
+		}
+
 
 	//can't delte file that doesn't exist
 	for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
@@ -194,7 +199,7 @@ int fs_delete(const char *filename){
 				root_global[i].first_db_index = 0;
 				root_global[i].filesize = 0;
 			}
-			//TODO free the data.
+			//TODO free the data, check if filename is Open
 	}
 
 	return 0;
