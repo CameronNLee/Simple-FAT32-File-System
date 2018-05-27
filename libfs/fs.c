@@ -8,6 +8,9 @@
 #include "disk.h"
 #include "fs.h"
 
+/* HELPER FUNCTION PROTOTYPES */
+int file_search(const char* filename);
+
 struct superblock {
 	uint8_t signature[8]; // ECS150FS
 	uint16_t total_blocks;
@@ -32,16 +35,16 @@ struct root {
 	uint8_t padding[10];
 }__attribute__((__packed__));
 
-struct file {
-	int id;
+struct fd {
+	unsigned int id;
     int file_offset;
-    int permission;
 	int root_entry;
-};
+}__attribute__((__packed__));
 
 static struct superblock* sb = NULL;
 static struct fat_block* fat_array = NULL;
 static struct root* root_global = NULL;
+static struct fd* fd_table = NULL;
 
 int fs_mount(const char *diskname)
 {
@@ -167,12 +170,11 @@ int fs_create(const char *filename)
     }
 
     // going through root entries seeing if filename already exists
-    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (strncmp( (char*)root_global[i].filename,
-                    filename, FS_FILENAME_LEN ) == 0) {
-            return -1;
-        }
-    } // end of error checks
+	// if so, return -1 since we don't want to create a filename
+	// that already exists.
+    if (file_search(filename) == 0) {
+		return -1;
+	}
 
     // find first occurrence of an empty root entry
     // (add file if first filename char is NULL char)
@@ -190,19 +192,20 @@ int fs_create(const char *filename)
 
 int fs_delete(const char *filename)
 {
-
-	bool filename_exists = 0;
-    // Check if file name is invalid
-    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
-        return -1;
-    }
-
+	// Check if file name is invalid
+	if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+		return -1;
+	}
+	// checks if filename is not found
+	if (file_search(filename) != 0) {
+		return -1;
+	}
+	
 	// checking if filename is inside the filesystem.
 	// if it isn't, return -1 (can't delete file that doesn't exist)
 	for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
 		if (strncmp((char *) root_global[i].filename,
 					filename, FS_FILENAME_LEN) == 0) {
-			filename_exists = 1;
 			root_global[i].filename[0] = '\0';
 			root_global[i].first_db_index = 0;
 			root_global[i].filesize = 0;
@@ -210,9 +213,6 @@ int fs_delete(const char *filename)
 		}
 	}
 
-	if (!filename_exists) {
-		return -1; // checks for if filename is not found
-	}
     // TODO free the data and free the FAT
 
 	return 0;
@@ -238,7 +238,16 @@ int fs_ls(void)
 
 int fs_open(const char *filename)
 {
-	/* TODO: Phase 3 */
+	// Check if file name is invalid
+	if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+		return -1;
+	}
+
+	// check if filename exists. If it does not, return error.
+	if (file_search(filename) != 0) {
+		return -1;
+	}
+	
 	return 0;
 }
 
@@ -270,4 +279,25 @@ int fs_read(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
 	return 0;
+}
+
+/* HELPER FUNCTIONS */
+
+/**
+ * file_search - find a file
+ * @filename: File name
+ *
+ * Find a file named @filename that exists inside the root entries.
+ *
+ * Return: -1 if @filename was not found in the root entries.
+ * Otherwise return 0 to indicate file was found.
+ */
+int file_search(const char* filename) {
+	for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
+		if (strncmp( (char*)root_global[i].filename,
+					 filename, FS_FILENAME_LEN ) == 0) {
+			return 0; // found a match
+		}
+	}
+	return -1; // fail state: could not find file
 }
