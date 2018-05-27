@@ -93,11 +93,28 @@ int fs_mount(const char *diskname)
 	if (block_read((size_t)sb->root_dir_index, root_global) == -1) {
 		return -1;
 	}
+    // finally, malloc space for the fd table
+    // (maximum fd's it can hold at a time is 32)
+    fd_table = malloc(sizeof(struct fd) * FS_OPEN_MAX_COUNT);
 
-	return 0;
+
+    return 0;
 }
 
 int fs_umount(void){
+    // error check if there are still open file descriptors
+    for (int i = 0; i < FS_OPEN_MAX_COUNT; ++i) {
+
+        /**
+         * below if is sort of pseudo-code for now:
+         * figure out way to return error if the
+         * loop detects an open file descriptor
+         * */
+        if (fd_table[i].id != 0) {
+            return -1;
+        }
+    }
+
 	//First one is always the superblock
 	if (block_write(0, sb) == -1) {
 		return -1;
@@ -120,6 +137,7 @@ int fs_umount(void){
 	free(sb);
 	free(root_global);
 	free(fat_array);
+    free(fd_table);
 	return 0;
 }
 
@@ -200,7 +218,7 @@ int fs_delete(const char *filename)
 	if (file_search(filename) != 0) {
 		return -1;
 	}
-	
+
 	// checking if filename is inside the filesystem.
 	// if it isn't, return -1 (can't delete file that doesn't exist)
 	for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
@@ -247,7 +265,7 @@ int fs_open(const char *filename)
 	if (file_search(filename) != 0) {
 		return -1;
 	}
-	
+
 	return 0;
 }
 
