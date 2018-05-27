@@ -10,6 +10,7 @@
 
 /* HELPER FUNCTION PROTOTYPES */
 int file_search(const char* filename);
+int get_root_entry(const char* filename);
 
 struct superblock {
 	uint8_t signature[8]; // ECS150FS
@@ -36,8 +37,9 @@ struct root {
 }__attribute__((__packed__));
 
 struct fd {
-	unsigned int id;
-    int file_offset;
+	int id;
+	//not unsigned, b/c we use -1 to describe fd that hasn't been opened yet
+  int file_offset;
 	int root_entry;
 }__attribute__((__packed__));
 
@@ -93,11 +95,14 @@ int fs_mount(const char *diskname)
 	if (block_read((size_t)sb->root_dir_index, root_global) == -1) {
 		return -1;
 	}
-    // finally, malloc space for the fd table
-    // (maximum fd's it can hold at a time is 32)
-    fd_table = malloc(sizeof(struct fd) * FS_OPEN_MAX_COUNT);
 
-
+	// finally, malloc space for the fd table
+  // (maximum fd's it can hold at a time is 32)
+  fd_table = malloc(sizeof(struct fd) * FS_OPEN_MAX_COUNT);
+	for(int i = 0; i < FS_OPEN_MAX_COUNT; ++i){
+		fd_table[i].id = -1; //we set all of them to -1, b/c none has been opened
+		fd_table[i].offset = 0; //always initliazed as 0
+	}
     return 0;
 }
 
@@ -188,8 +193,8 @@ int fs_create(const char *filename)
     }
 
     // going through root entries seeing if filename already exists
-	// if so, return -1 since we don't want to create a filename
-	// that already exists.
+		// if so, return -1 since we don't want to create a filename
+		// that already exists.
     if (file_search(filename) == 0) {
 		return -1;
 	}
@@ -254,8 +259,7 @@ int fs_ls(void)
 	return 0;
 }
 
-int fs_open(const char *filename)
-{
+int fs_open(const char *filename) {
 	// Check if file name is invalid
 	if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
 		return -1;
@@ -266,7 +270,15 @@ int fs_open(const char *filename)
 		return -1;
 	}
 
-	return 0;
+	//we find the first f_d that is not valid, and the set a new ID to it.
+	for(int i = 0; i < FS_OPEN_MAX_COUNT; ++i) {
+		if (fd_table[i].id == -1) {
+			fd_table[i].id = i;
+			fd_table[i].root_entry = get_root_entry(filename);
+			return fd_table[i].id;
+		}
+	}
+	return -1;
 }
 
 int fs_close(int fd)
@@ -315,6 +327,16 @@ int file_search(const char* filename) {
 		if (strncmp( (char*)root_global[i].filename,
 					 filename, FS_FILENAME_LEN ) == 0) {
 			return 0; // found a match
+		}
+	}
+	return -1; // fail state: could not find file
+}
+
+int get_root_entry(const char* filename) {
+	for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
+		if (strncmp( (char*)root_global[i].filename,
+					 filename, FS_FILENAME_LEN ) == 0) {
+			return i; // found a match
 		}
 	}
 	return -1; // fail state: could not find file
