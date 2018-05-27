@@ -32,6 +32,13 @@ struct root {
 	uint8_t padding[10];
 }__attribute__((__packed__));
 
+struct file {
+	int id;
+    int file_offset;
+    int permission;
+	int root_entry;
+};
+
 static struct superblock* sb = NULL;
 static struct fat_block* fat_array = NULL;
 static struct root* root_global = NULL;
@@ -144,7 +151,7 @@ int fs_create(const char *filename)
     // already populated. i.e. 128 files present; no more can be added.
 	int file_counter = 0; // temporary variable
 	for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-		if (root_global[i].filename[0] == '\0') {
+		if (root_global[i].filename[0] != '\0') {
 			++file_counter;
 		}
 	}
@@ -203,10 +210,10 @@ int fs_delete(const char *filename)
 		}
 	}
 
-	if(!filename_exists) {
-		return -1; //checks for if filename is not found
+	if (!filename_exists) {
+		return -1; // checks for if filename is not found
 	}
-		//TODO free the data.
+    // TODO free the data and free the FAT
 
 	return 0;
 }
