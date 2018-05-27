@@ -78,6 +78,8 @@ int fs_mount(const char *diskname)
     for(int i = 0; i < sb->total_fat_blocks; i++){
         fat_array->entries[i] = malloc(BLOCK_SIZE);
     }
+
+
     int total_fat_counter = (int)sb->total_fat_blocks;
     size_t read_counter = 1;
 
@@ -314,7 +316,8 @@ int fs_stat(int fd)
     return root_global[fd_table[fd_index].root_entry].filesize;
 }
 
-int fs_lseek(int fd, size_t offset){
+int fs_lseek(int fd, size_t offset)
+{
 
     if (fd < 0) {
         return -1;
@@ -342,10 +345,20 @@ int fs_write(int fd, void *buf, size_t count)
     return 0;
 }
 
-int fs_read(int fd, void *buf, size_t count)
-{
-    /* TODO: Phase 4 */
-    return 0;
+int fs_read(int fd, void *buf, size_t count){
+
+    if (fd < 0) {
+        return -1;
+    }
+
+    //if the fd index doesn't exist, return -1
+    int fd_index = get_fd_table_index(fd);
+    if(fd_index == -1){
+        return -1;
+    }
+
+
+    return count;
 }
 
 /* HELPER FUNCTIONS */
