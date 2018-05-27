@@ -1,389 +1,181 @@
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#ifndef _FS_H
+#define _FS_H
+
 #include <stdint.h>
-#include <stdbool.h>
+#include <stddef.h>
 
-#include "disk.h"
-#include "fs.h"
+/** Maximum filename length (including the NULL character) */
+#define FS_FILENAME_LEN 16
 
-/* HELPER FUNCTION PROTOTYPES */
-int file_search(const char* filename);
-int get_root_entry(const char* filename);
-int get_fd_table_index(int fd);
+/** Maximum number of files in the root directory */
+#define FS_FILE_MAX_COUNT 128
 
-struct superblock {
-    uint8_t signature[8]; // ECS150FS
-    uint16_t total_blocks;
-    uint16_t root_dir_index;
-    uint16_t data_block_index;
-    uint16_t total_data_blocks;
-    uint8_t total_fat_blocks;
-    uint8_t padding[4079];
-}__attribute__((__packed__));
-
-struct fat_block {
-    // we have an array of FAT blocks.
-    // each FAT block has an array of entries
-    // (2048 entries for a total of 4096 bytes)
-    uint16_t **entries;
-}__attribute__((__packed__));
-
-struct root {
-    uint8_t filename[FS_FILENAME_LEN];
-    uint32_t filesize;
-    uint16_t first_db_index;
-    uint8_t padding[10];
-}__attribute__((__packed__));
-
-struct fd {
-    int id;
-    //not unsigned, b/c we use -1 to describe fd that hasn't been opened yet
-    int offset;
-    int root_entry;
-}__attribute__((__packed__));
-
-static struct superblock* sb = NULL;
-static struct fat_block* fat_array = NULL;
-static struct root* root_global = NULL;
-static struct fd* fd_table = NULL;
-
-int fs_mount(const char *diskname)
-{
-    sb = malloc(sizeof(struct superblock));
-    if (block_disk_open(diskname) == -1) {
-        return -1;
-    }
-    if (block_read(0, sb) == -1) {
-        return -1;
-    }
-    // testing for matching signature
-    if (strncmp((char *)sb->signature, "ECS150FS", 8) != 0) {
-        return -1;
-    }
-    // testing for matching block count
-    if (block_disk_count() != sb->total_blocks) {
-        return -1;
-    }
-
-    // begin loading metadata for the fat struct
-    fat_array = malloc(sizeof(struct fat_block));
-    fat_array->entries = malloc(sb->total_fat_blocks);
-
-    // entries represents the array of fat blocks themselves
-    // entries[i] however is the array of fat block entries,
-    // per fat block. Hence, malloc 4096 bytes for
-    // each i index in entries[i].
-    for(int i = 0; i < sb->total_fat_blocks; i++){
-        fat_array->entries[i] = malloc(BLOCK_SIZE);
-    }
-    int total_fat_counter = (int)sb->total_fat_blocks;
-    size_t read_counter = 1;
-
-    while (total_fat_counter != 0) {
-        if (block_read(read_counter,
-                       fat_array->entries[read_counter-1]) == -1) {
-            return -1;
-        }
-        read_counter++;
-        --total_fat_counter;
-    }
-    //Now we do the same thing for the root_global
-    //almost exactly the same as what we did for the superblock
-    // 32 bytes * 128 entries
-    root_global = malloc(sizeof(struct root) * FS_FILE_MAX_COUNT);
-    if (block_read((size_t)sb->root_dir_index, root_global) == -1) {
-        return -1;
-    }
-
-    // finally, malloc space for the fd table
-    // (maximum fd's it can hold at a time is 32)
-    fd_table = malloc(sizeof(struct fd) * FS_OPEN_MAX_COUNT);
-    for(int i = 0; i < FS_OPEN_MAX_COUNT; ++i){
-        fd_table[i].id = -1; //we set all of them to -1, b/c none has been opened
-        fd_table[i].offset = 0; //always initliazed as 0
-    }
-    return 0;
-}
-
-int fs_umount(void){
-    // error check if there are still open file descriptors
-    for (int i = 0; i < FS_OPEN_MAX_COUNT; ++i) {
-
-        /**
-         * below if is sort of pseudo-code for now:
-         * figure out way to return error if the
-         * loop detects an open file descriptor
-         * */
-        if (fd_table[i].id != 0) {
-            return -1;
-        }
-    }
-
-    //First one is always the superblock
-    if (block_write(0, sb) == -1) {
-        return -1;
-    }
-    //Next is the FAT blocks
-    for(size_t i = 0; i < sb->total_fat_blocks; i++){
-        if(block_write((i+1), fat_array->entries[i]) == -1){
-            return -1;
-        }
-    }
-    //Afterwards is the root.
-    if(block_write(sb->root_dir_index, root_global) == -1){
-        return -1;
-    }
-    //We then finally close it
-    if(block_disk_close() == -1){
-        return -1;
-    }
-    // Free the globals
-    free(sb);
-    free(root_global);
-    free(fat_array);
-    free(fd_table);
-    return 0;
-}
-
-int fs_info(void)
-{
-    // sb being NULL means it never changed.
-    // if sb never changed, then no virtual disk
-    // was opened in the first place.
-    if (!sb) {
-        return -1;
-    }
-
-    printf("FS Info:\n");
-    printf("total_blk_count=%d\n", sb->total_blocks);
-    printf("fat_blk_count=%d\n", sb->total_fat_blocks);
-    printf("rdir_blk=%d\n", sb->root_dir_index);
-    printf("data_blk=%d\n", sb->data_block_index);
-    printf("data_blk_count=%d\n", sb->total_data_blocks);
-
-    printf("fat_free_ratio=%d/%d\n",
-           sb->total_data_blocks-1, sb->total_data_blocks);
-
-    printf("rdir_free_ratio=%d/%d\n",
-           FS_FILE_MAX_COUNT, FS_FILE_MAX_COUNT); // consider not hardcoding
-
-    return 0;
-}
-
-int fs_create(const char *filename)
-{
-    // error checking if all root entries are
-    // already populated. i.e. 128 files present; no more can be added.
-    int file_counter = 0; // temporary variable
-    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (root_global[i].filename[0] != '\0') {
-            ++file_counter;
-        }
-    }
-    if (file_counter == 128) {
-        return -1;
-    }
-
-    // error checking for invalid filename
-    // we define "invalid" to be filenames with 0 bytes (empty)
-    // or above the 16 bytes specified
-    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
-        return -1;
-    }
-
-    // going through root entries seeing if filename already exists
-    // if so, return -1 since we don't want to create a filename
-    // that already exists.
-    if (file_search(filename) == 0) {
-        return -1;
-    }
-
-    // find first occurrence of an empty root entry
-    // (add file if first filename char is NULL char)
-    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (root_global[i].filename[0] == '\0') {
-            strcpy((char *)root_global[i].filename, filename);
-            root_global[i].filesize = 0;
-            root_global[i].first_db_index = 65535; // fat_EOC
-            break; // don't
-        }
-    }
-
-    return 0;
-}
-
-int fs_delete(const char *filename)
-{
-    // Check if file name is invalid
-    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
-        return -1;
-    }
-    // checks if filename is not found
-    if (file_search(filename) != 0) {
-        return -1;
-    }
-
-    // checking if filename is inside the filesystem.
-    // if it isn't, return -1 (can't delete file that doesn't exist)
-    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (strncmp((char *) root_global[i].filename,
-                    filename, FS_FILENAME_LEN) == 0) {
-            root_global[i].filename[0] = '\0';
-            root_global[i].first_db_index = 0;
-            root_global[i].filesize = 0;
-            break;
-        }
-    }
-
-    // TODO free the data and free the FAT
-
-    return 0;
-}
-
-int fs_ls(void)
-{
-    // sb being NULL implies nothing was mounted,
-    // since sb gets populated in fs_mount()
-    if (!sb) {
-        return -1;
-    }
-    printf("FS Ls:\n");
-    for (size_t i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (root_global[i].filename[0] != '\0') {
-            printf("file: %s, size: %d, data_blk: %d\n",
-                   root_global[i].filename, root_global[i].filesize,
-                   root_global[i].first_db_index);
-        }
-    }
-    return 0;
-}
-
-int fs_open(const char *filename) {
-    // Check if file name is invalid
-    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
-        return -1;
-    }
-
-    // check if filename exists. If it does not, return error.
-    if (file_search(filename) != 0) {
-        return -1;
-    }
-
-    //we find the first fd that is not valid, and the set a new ID to it.
-    for(int i = 0; i < FS_OPEN_MAX_COUNT; ++i) {
-        if (fd_table[i].id == -1) {
-            fd_table[i].id = i;
-            fd_table[i].root_entry = get_root_entry(filename);
-            return fd_table[i].id;
-        }
-    }
-    return -1;
-}
-
-int fs_close(int fd)
-{
-    // out of bounds error. Potentially accounts for
-    // fd arg that is not currently open
-    // since the struct fd member id is assigned as
-    // -1 by default.
-    if (fd < 0) {
-        return -1;
-    }
-    int fd_index = get_fd_table_index(fd);
-    if (fd_index == -1) {
-        return -1; // fd isn't open
-    }
-    fd_table[fd_index].id = -1;
-    return 0;
-}
-
-int fs_stat(int fd)
-{
-    if (fd < 0) {
-        return -1;
-    }
-    int fd_index = get_fd_table_index(fd);
-    if (fd_index == -1) {
-        return -1;
-    }
-
-		//we get our curernt root entry in our fd_table, and use that
-		//to get the file size in our root_global array.
-    return root_global[fd_table[fd_index].root_entry].filesize;
-}
-
-int fs_lseek(int fd, size_t offset){
-
-		if (fd < 0) {
-        return -1;
-    }
-
-		//if the fd index doesn't exist, return -1
-		int fd_index = get_fd_table_index(fd);
-		if(fd_index == -1){
-			return -1;
-		}
-
-		//if offset is greater than the filesize, obviously an error
-		//TODO: ther should be other checks for valid offset.
-		if(offset > fd_table[fd_index].filesize){
-			return -1;
-		}
-
-		fd_table[fd_index].offset = offset;
-    return 0;
-}
-
-int fs_write(int fd, void *buf, size_t count)
-{
-    /* TODO: Phase 4 */
-    return 0;
-}
-
-int fs_read(int fd, void *buf, size_t count)
-{
-    /* TODO: Phase 4 */
-    return 0;
-}
-
-/* HELPER FUNCTIONS */
+/** Maximum number of open files */
+#define FS_OPEN_MAX_COUNT 32
 
 /**
- * file_search - find a file
+ * fs_mount - Mount a file system
+ * @diskname: Name of the virtual disk file
+ *
+ * Open the virtual disk file @diskname and mount the file system that it
+ * contains. A file system needs to be mounted before files can be read from it
+ * with fs_read() or written to it with fs_write().
+ *
+ * Return: -1 if virtual disk file @diskname cannot be opened, or if no valid
+ * file system can be located. 0 otherwise.
+ */
+int fs_mount(const char *diskname);
+
+/**
+ * fs_umount - Unmount file system
+ *
+ * Unmount the currently mounted file system and close the underlying virtual
+ * disk file.
+ *
+ * Return: -1 if no underlying virtual disk was opened, or if the virtual disk
+ * cannot be closed, or if there are still open file descriptors. 0 otherwise.
+ */
+int fs_umount(void);
+
+/**
+ * fs_info - Display information about file system
+ *
+ * Display some information about the currently mounted file system.
+ *
+ * Return: -1 if no underlying virtual disk was opened. 0 otherwise.
+ */
+int fs_info(void);
+
+/**
+ * fs_create - Create a new file
  * @filename: File name
  *
- * Find a file named @filename that exists inside the root entries.
+ * Create a new and empty file named @filename in the root directory of the
+ * mounted file system. String @filename must be NULL-terminated and its total
+ * length cannot exceed %FS_FILENAME_LEN characters (including the NULL
+ * character).
  *
- * Return: -1 if @filename was not found in the root entries.
- * Otherwise return 0 to indicate file was found.
+ * Return: -1 if @filename is invalid, if a file named @filename already exists,
+ * or if string @filename is too long, or if the root directory already contains
+ * %FS_FILE_MAX_COUNT files. 0 otherwise.
  */
-int file_search(const char* filename) {
-    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (strncmp( (char*)root_global[i].filename,
-                     filename, FS_FILENAME_LEN ) == 0) {
-            return 0; // found a match
-        }
-    }
-    return -1; // fail state: could not find file
-}
+int fs_create(const char *filename);
 
-int get_root_entry(const char* filename) {
-    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (strncmp( (char*)root_global[i].filename,
-                     filename, FS_FILENAME_LEN ) == 0) {
-            return i; // found a match
-        }
-    }
-    return -1; // fail state: could not find file
-}
+/**
+ * fs_delete - Delete a file
+ * @filename: File name
+ *
+ * Delete the file named @filename from the root directory of the mounted file
+ * system.
+ *
+ * Return: -1 if @filename is invalid, if there is no file named @filename to
+ * delete, or if file @filename is currently open. 0 otherwise.
+ */
+int fs_delete(const char *filename);
 
-int get_fd_table_index(int fd) {
-    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (fd_table[i].id == fd) {
-            return i; // found index
-        }
-    }
-    return -1; // fail state: could not find opened fd
-}
+/**
+ * fs_ls - List files on file system
+ *
+ * List information about the files located in the root directory.
+ *
+ * Return: -1 if no underlying virtual disk was opened. 0 otherwise.
+ */
+int fs_ls(void);
+
+/**
+ * fs_open - Open a file
+ * @filename: File name
+ *
+ * Open file named @filename for reading and writing, and return the
+ * corresponding file descriptor. The file descriptor is a non-negative integer
+ * that is used subsequently to access the contents of the file. The file offset
+ * of the file descriptor is set to 0 initially (beginning of the file). If the
+ * same file is opened multiple files, fs_open() must return distinct file
+ * descriptors. A maximum of %FS_OPEN_MAX_COUNT files can be open
+ * simultaneously.
+ *
+ * Return: -1 if @filename is invalid, there is no file named @filename to open,
+ * or if there are already %FS_OPEN_MAX_COUNT files currently open. Otherwise,
+ * return the file descriptor.
+ */
+int fs_open(const char *filename);
+
+/**
+ * fs_close - Close a file
+ * @fd: File descriptor
+ *
+ * Close file descriptor @fd.
+ *
+ * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
+ * open). 0 otherwise.
+ */
+int fs_close(int fd);
+
+/**
+ * fs_stat - Get file status
+ * @fd: File descriptor
+ *
+ * Get the current size of the file pointed by file descriptor @fd.
+ *
+ * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
+ * open). Otherwise return the current size of file.
+ */
+int fs_stat(int fd);
+
+/**
+ * fs_lseek - Set file offset
+ * @fd: File descriptor
+ * @offset: File offset
+ *
+ * Set the file offset (used for read and write operations) associated with file
+ * descriptor @fd to the argument @offset. To append to a file, one can call
+ * fs_lseek(fd, fs_stat(fd));
+ *
+ * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
+ * open), or if @offset is out of bounds (beyond the end of the file). 0
+ * otherwise.
+ */
+int fs_lseek(int fd, size_t offset);
+
+/**
+ * fs_write - Write to a file
+ * @fd: File descriptor
+ * @buf: Data buffer to write in the file
+ * @count: Number of bytes of data to be written
+ *
+ * Attempt to write @count bytes of data from buffer pointer by @buf into the
+ * file referenced by file descriptor @fd. It is assumed that @buf holds at
+ * least @count bytes.
+ *
+ * When the function attempts to write past the end of the file, the file is
+ * automatically extended to hold the additional bytes. If the underlying disk
+ * runs out of space while performing a write operation, fs_write() should write
+ * as many bytes as possible. The number of written bytes can therefore be
+ * smaller than @count (it can even be 0 if there is no more space on disk).
+ *
+ * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
+ * open). Otherwise return the number of bytes actually written.
+ */
+int fs_write(int fd, void *buf, size_t count);
+
+/**
+ * fs_read - Read from a file
+ * @fd: File descriptor
+ * @buf: Data buffer to be filled with data
+ * @count: Number of bytes of data to be read
+ *
+ * Attempt to read @count bytes of data from the file referenced by file
+ * descriptor @fd into buffer pointer by @buf. It is assumed that @buf is large
+ * enough to hold at least @count bytes.
+ *
+ * The number of bytes read can be smaller than @count if there are less than
+ * @count bytes until the end of the file (it can even be 0 if the file offset
+ * is at the end of the file). The file offset of the file descriptor is
+ * implicitly incremented by the number of bytes that were actually read.
+ *
+ * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
+ * open). Otherwise return the number of bytes actually read.
+ */
+int fs_read(int fd, void *buf, size_t count);
+
+#endif /* _FS_H */
