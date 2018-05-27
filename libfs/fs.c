@@ -308,14 +308,31 @@ int fs_stat(int fd)
     if (fd_index == -1) {
         return -1;
     }
+
+		//we get our curernt root entry in our fd_table, and use that
+		//to get the file size in our root_global array.
     return root_global[fd_table[fd_index].root_entry].filesize;
 }
 
-int fs_lseek(int fd, size_t offset)
-{
-    if (fd < 0) {
+int fs_lseek(int fd, size_t offset){
+
+		if (fd < 0) {
         return -1;
     }
+
+		//if the fd index doesn't exist, return -1
+		int fd_index = get_fd_table_index(fd);
+		if(fd_index == -1){
+			return -1;
+		}
+
+		//if offset is greater than the filesize, obviously an error
+		//TODO: ther should be other checks for valid offset.
+		if(offset > fd_table[fd_index].filesize){
+			return -1;
+		}
+
+		fd_table[fd_index].offset = offset;
     return 0;
 }
 
