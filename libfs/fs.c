@@ -30,6 +30,13 @@ struct fat_block {
     uint16_t **entries;
 }__attribute__((__packed__));
 
+/*struct data_block {
+    // we have an array of data blocks.
+    // each data block holds file data
+
+    uint8_t **db_entries;
+}__attribute__((__packed__));*/
+
 struct root {
     uint8_t filename[FS_FILENAME_LEN];
     uint32_t filesize;
@@ -46,6 +53,7 @@ struct fd {
 
 static struct superblock* sb = NULL;
 static struct fat_block* fat_array = NULL;
+// static struct data_block* db_array = NULL;
 static struct root* root_global = NULL;
 static struct fd* fd_table = NULL;
 
@@ -78,8 +86,6 @@ int fs_mount(const char *diskname)
     for(int i = 0; i < sb->total_fat_blocks; i++){
         fat_array->entries[i] = malloc(BLOCK_SIZE);
     }
-
-
     int total_fat_counter = (int)sb->total_fat_blocks;
     size_t read_counter = 1;
 
@@ -91,6 +97,27 @@ int fs_mount(const char *diskname)
         read_counter++;
         --total_fat_counter;
     }
+
+/*    // begin assignment of data blocks to db_array
+    db_array = malloc(sizeof(struct data_block));
+    db_array->db_entries = malloc(sb->total_data_blocks);
+    int total_db_counter = sb->total_data_blocks;
+    for(int i = 0; i < sb->total_data_blocks; i++){
+        db_array->db_entries[i] = malloc(BLOCK_SIZE);
+    }
+    // reset the read_counter to begin at first data block index
+    read_counter = sb->data_block_index;
+    size_t db_index_count = 0;
+    while (total_db_counter != 0) {
+        if (block_read(read_counter,
+                       db_array->db_entries[db_index_count]) == -1) {
+            return -1;
+        }
+        read_counter++;
+        db_index_count++;
+        --total_db_counter;
+    }*/
+
     //Now we do the same thing for the root_global
     //almost exactly the same as what we did for the superblock
     // 32 bytes * 128 entries
@@ -118,9 +145,9 @@ int fs_umount(void){
          * figure out way to return error if the
          * loop detects an open file descriptor
          * */
-        if (fd_table[i].id != 0) {
+/*        if (fd_table[i].id != 0) {
             return -1;
-        }
+        }*/
     }
 
     //First one is always the superblock
@@ -158,6 +185,31 @@ int fs_info(void)
         return -1;
     }
 
+    // get the actual amount of free fat blocks
+    // by iterating through the fat_array and
+    // incrementing the fat_occupied_count by 1
+    // each time it encounters a zero entry
+    int fat_free_count = 0;
+    for (int i = 0; i < sb->total_fat_blocks; ++i) {
+        for (int j = 0; j < 2048; ++j) { // 2048 entries per FAT block
+            if (fat_array->entries[i][j] == 0) {
+                ++fat_free_count;
+            }
+        }
+    }
+
+    // now calculate the amount of occupied root entries
+    // by iterating through the root_global array and
+    // incrementing occupied_root_count by 1 each time
+    // it encounters a null character in each entry's
+    // filename member.
+    int root_entry_free_count = 0;
+    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
+        if (root_global[i].filename[0] == '\0') {
+            ++root_entry_free_count;
+        }
+    }
+
     printf("FS Info:\n");
     printf("total_blk_count=%d\n", sb->total_blocks);
     printf("fat_blk_count=%d\n", sb->total_fat_blocks);
@@ -166,10 +218,10 @@ int fs_info(void)
     printf("data_blk_count=%d\n", sb->total_data_blocks);
 
     printf("fat_free_ratio=%d/%d\n",
-           sb->total_data_blocks-1, sb->total_data_blocks);
+           fat_free_count, sb->total_data_blocks);
 
     printf("rdir_free_ratio=%d/%d\n",
-           FS_FILE_MAX_COUNT, FS_FILE_MAX_COUNT); // consider not hardcoding
+           root_entry_free_count, FS_FILE_MAX_COUNT);
 
     return 0;
 }
@@ -273,7 +325,7 @@ int fs_open(const char *filename) {
         return -1;
     }
 
-    //we find the first fd that is not valid, and the set a new ID to it.
+    //we find the first fd that is not open, and the set a new ID to it.
     for(int i = 0; i < FS_OPEN_MAX_COUNT; ++i) {
         if (fd_table[i].id == -1) {
             fd_table[i].id = i;
@@ -316,8 +368,7 @@ int fs_stat(int fd)
     return root_global[fd_table[fd_index].root_entry].filesize;
 }
 
-int fs_lseek(int fd, size_t offset)
-{
+int fs_lseek(int fd, size_t offset){
 
     if (fd < 0) {
         return -1;
@@ -330,7 +381,7 @@ int fs_lseek(int fd, size_t offset)
     }
 
     //if offset is greater than the filesize, obviously an error
-    //TODO: ther should be other checks for valid offset.
+    //TODO: there should be other checks for valid offset.
     if(offset > root_global[fd_table[fd_index].root_entry].filesize){
         return -1;
     }
@@ -341,12 +392,13 @@ int fs_lseek(int fd, size_t offset)
 
 int fs_write(int fd, void *buf, size_t count)
 {
-    /* TODO: Phase 4 */
+    printf("ohno\n");
     return 0;
 }
 
-int fs_read(int fd, void *buf, size_t count){
-
+int fs_read(int fd, void *buf, size_t count)
+{
+    //invalid fd
     if (fd < 0) {
         return -1;
     }
