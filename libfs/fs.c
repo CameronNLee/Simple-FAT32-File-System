@@ -430,6 +430,80 @@ int fs_read(int fd, void *buf, size_t count)
     int buf_offset = 0;
     size_t multi_count = count;
 
+    //There should be 3 overarching scenarios here. Each scenario also changes
+    //if the offset of the file > 0.
+    //count == size, count < size, count > size.
+    //If count == size, we just memcpy everything.
+    //if count > size, we only read up to size.
+    //TODO: < and >.
+
+
+    //Mainly here because it looks ugly to keep on copy/pasting it.
+    size_t fd_offset = root_global[fd_table[fd_index].root_entry].offset;
+
+    //Here is concerning if the file offset > 0
+    //We get what block to start reading from, and where in the block to read.
+    int block_offset = (int)fd_offset/BLOCK_SIZE;
+    size_t byte_offset = fd_offset - (size_t)(block_offset*BLOCK_SIZE);
+    int offset_data_block = amnt_data_blocks - block_offset;
+    int offset_db_index = db_index + block_offset;
+    //size_t multi_offset_cnt = count;
+
+
+    while(offset_data_block != 0){
+      if(block_read(offset_db_index, bounce_buf) == -1){
+          return -1;
+      }
+      //Now we've offset'd all the blocks, we should offset bytes in the block.
+
+      //This condition is if we just happen to read all that's left of one block
+      if(count <= BLOCK_SIZE - byte_offset){
+        memcpy(buf, bounce_buf + byte_offset, count);
+        root_global[fd_table[fd_index].root_entry].offset += count;
+        return (int)count;
+      }
+      else{
+
+        //If we've offsetted into middle of block, finish reading that block
+        if(byte_offset > 0){ //should only run thru this fxn ONCE at most.
+          memcpy(buf, bounce_buf + byte_offset, byte_offset);
+          buf_offset = buf_offset + byte_offset;
+          multi_count = multi_count - byte_offset;
+          offset_db_index++;
+          byte_offset = 0; //safe to do this now, since we'll never use it again
+
+          //if multi_count 0, we just return.
+          if(multi_count == 0){
+            root_global[fd_table[fd_index].root_entry].offset += multi_count;
+            return (int)multi_count;
+          }
+
+        }
+
+        //so if multi_count is still greater than a BLOCK_SIZE, we just memcpy
+        //the whole block into buf.
+        else if(multi_count > BLOCK_SIZE){
+          memcpy(buf + buf_offset, bounce_buf, BLOCK_SIZE);
+          buf_offset = buf_offset + BLOCK_SIZE;
+          multi_count = multi_count - BLOCK_SIZE;
+          offset_db_index++;
+        }
+
+        //multi_count less than BLOCK_SIZE
+        //we read what's left of the block.
+        else{
+          memcpy(buf + buf_offset, bounce_buf, multi_count);
+          buf_offset = buf_offset + multi_count;
+          offset_db_index++;
+        }
+      }
+
+      offset_data_block--;
+
+      root_global[fd_table[fd_index].root_entry].offset += count;
+      return (int)count;
+    }
+
 
     //so we keep on reading in data blocks into bounce_buf
     //then we write the bounce_buf into buf, and then increment the offset for
@@ -441,6 +515,8 @@ int fs_read(int fd, void *buf, size_t count)
         //if count < or = BLOCK_SIZE, we just read in everything to buf.
         if(count <= BLOCK_SIZE){
             memcpy(buf, bounce_buf, count);
+            //we modify the offset before returning.
+            root_global[fd_table[fd_index].root_entry].offset += count;
             return (int)count;
         }
             //if we're reading in multiple blocks, we have to write to the offset of
@@ -465,6 +541,8 @@ int fs_read(int fd, void *buf, size_t count)
         --amnt_data_blocks;
     }
 
+    //we modify the offset before returning.
+    root_global[fd_table[fd_index].root_entry].offset += count;
     return (int)count;
 }
 
