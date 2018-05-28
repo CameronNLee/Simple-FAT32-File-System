@@ -228,6 +228,26 @@ int fs_info(void)
 
 int fs_create(const char *filename)
 {
+
+    // error checking for invalid filename
+    // we define "invalid" to be filenames with 0 bytes (empty)
+    // or above the 16 bytes specified
+    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+        return -1;
+    }
+
+    // check if filename is null-terminated
+    if ( *(filename + strlen(filename) ) != '\0') {
+        return -1;
+    }
+
+    // going through root entries seeing if filename already exists
+    // if so, return -1 since we don't want to create a filename
+    // that already exists.
+    if (file_search(filename) == 0) {
+        return -1;
+    }
+
     // error checking if all root entries are
     // already populated. i.e. 128 files present; no more can be added.
     int file_counter = 0; // temporary variable
@@ -237,20 +257,6 @@ int fs_create(const char *filename)
         }
     }
     if (file_counter == 128) {
-        return -1;
-    }
-
-    // error checking for invalid filename
-    // we define "invalid" to be filenames with 0 bytes (empty)
-    // or above the 16 bytes specified
-    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
-        return -1;
-    }
-
-    // going through root entries seeing if filename already exists
-    // if so, return -1 since we don't want to create a filename
-    // that already exists.
-    if (file_search(filename) == 0) {
         return -1;
     }
 
@@ -264,7 +270,6 @@ int fs_create(const char *filename)
             break; // don't
         }
     }
-
     return 0;
 }
 
