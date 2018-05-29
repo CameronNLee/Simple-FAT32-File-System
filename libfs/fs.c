@@ -185,15 +185,16 @@ int fs_info(void)
         return -1;
     }
 
-    // get the actual amount of free fat blocks
+    // get the actual amount of occupied fat blocks
     // by iterating through the fat_array and
     // incrementing the fat_occupied_count by 1
-    // each time it encounters a zero entry
-    int fat_free_count = 0;
+    // each time it encounters a non-zero entry
+    int fat_occupied_count = 0;
+
     for (int i = 0; i < sb->total_fat_blocks; ++i) {
         for (int j = 0; j < 2048; ++j) { // 2048 entries per FAT block
-            if (fat_array->entries[i][j] == 0) {
-                ++fat_free_count;
+            if (fat_array->entries[i][j] != 0) {
+                ++fat_occupied_count;
             }
         }
     }
@@ -218,7 +219,7 @@ int fs_info(void)
     printf("data_blk_count=%d\n", sb->total_data_blocks);
 
     printf("fat_free_ratio=%d/%d\n",
-           fat_free_count, sb->total_data_blocks);
+           sb->total_data_blocks - fat_occupied_count, sb->total_data_blocks);
 
     printf("rdir_free_ratio=%d/%d\n",
            root_entry_free_count, FS_FILE_MAX_COUNT);
