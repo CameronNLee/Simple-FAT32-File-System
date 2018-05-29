@@ -421,6 +421,7 @@ int fs_read(int fd, void *buf, size_t count)
     uint32_t filesize = root_global[fd_table[fd_index].root_entry].filesize;
     int amnt_data_blocks = ((int)filesize/BLOCK_SIZE) + 1;
     void* bounce_buf = malloc(BLOCK_SIZE); //used to hold a temp data block.
+    uint32_t bytes_in_file = filesize;
 
     // db_index describes all the data block indices associated with
     // the file pointed to by fd. db_index will change values as it
@@ -516,17 +517,26 @@ int fs_read(int fd, void *buf, size_t count)
         }
         //if count < or = BLOCK_SIZE, we just read in everything to buf.
         if(count <= BLOCK_SIZE){
-            memcpy(buf, bounce_buf, count);
-            //we modify the offset before returning.
-            fd_table[fd_index].offset += count;
-            return (int)count;
+            if(count > bytes_in_file){
+                memcpy(buf, bounce_buf, bytes_in_file);
+                fd_table[fd_index].offset +=  bytes_in_file;
+                return (int) bytes_in_file;
+            }
+            else{
+                memcpy(buf, bounce_buf, count);
+                //we modify the offset before returning.
+                fd_table[fd_index].offset += count;
+                return (int)count;
+            }
         }
+
             //if we're reading in multiple blocks, we have to write to the offset of
             //buf each time. We still memcpy the BLOCK_SIZE every time.
         else{
             //So multicount is for when the amnt of bytes to be read is for example
             //4097, so we read in 4096, decrement multicount by 4096, then we
             //read in the last byte in the else statement.
+
             if(multi_count > BLOCK_SIZE){
                 memcpy(buf+buf_offset, bounce_buf, BLOCK_SIZE);
                 buf_offset = buf_offset + BLOCK_SIZE;
