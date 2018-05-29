@@ -445,6 +445,11 @@ int fs_read(int fd, void *buf, size_t count)
     // Mainly here because it looks ugly to keep on copy/pasting the RHS.
     size_t fd_offset = (size_t)fd_table[fd_index].offset;
 
+
+    if (filesize == fd_offset) {
+        return 0;
+    }
+
     // If the file offset > 0:
     // Calculate what block to start reading from, and where in the block to read. Ex. if filesize was 10,000 bytes and count = 2000, but the offset was 5000, then block_offset would be 1 and byte_offset would be 4.
     int block_offset = (int)fd_offset/BLOCK_SIZE;
@@ -512,12 +517,18 @@ int fs_read(int fd, void *buf, size_t count)
                 }
             }
             offset_data_block--;
-        }    
-        fd_table[fd_index].offset += count;
-        return (int)count;
+        } // end of while loop
+        if (fd_offset + count > filesize) {
+            fd_table[fd_index].offset += bytes_in_file;
+            return (int)bytes_in_file;
+        }
+        else {
+            fd_table[fd_index].offset += count;
+            return (int)count;
+        }
     }
 
-    
+
     //so we keep on reading in data blocks into bounce_buf
     //then we write the bounce_buf into buf, and then increment the offset for
     //buf.
@@ -527,7 +538,7 @@ int fs_read(int fd, void *buf, size_t count)
         }
         //if count < or = BLOCK_SIZE, we just read in everything to buf.
         if(count <= BLOCK_SIZE){
-            if(count > bytes_in_file){ 
+            if(count > bytes_in_file){
                 //here is if count > file size.
                 memcpy(buf, bounce_buf, bytes_in_file);
                 fd_table[fd_index].offset +=  bytes_in_file;
@@ -563,7 +574,7 @@ int fs_read(int fd, void *buf, size_t count)
                     multi_count = multi_count - BLOCK_SIZE;
                     bytes_in_file = bytes_in_file - BLOCK_SIZE;
                     db_index++;
-                }          
+                }
             }
             else{
                 //There are basically two scenarios here.
@@ -610,6 +621,16 @@ int file_search(const char* filename) {
     return -1; // fail state: could not find file
 }
 
+/**
+ * get_root_entry - returns root entry index
+ * @filename: File name
+ *
+ * Find a file named @filename that exists inside the root entries.
+ *
+ * Return: -1 if @filename was not found in the root entries.
+ * Otherwise return the root entry index of where @filename
+ * was located in.
+ */
 int get_root_entry(const char* filename) {
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
         if (strncmp( (char*)root_global[i].filename,
@@ -620,6 +641,17 @@ int get_root_entry(const char* filename) {
     return -1; // fail state: could not find file
 }
 
+/**
+ * get_fd_table_index - returns fd table index
+ * @fd: file descriptor ID
+ *
+ * Find a file descriptor named @fd that exists inside
+ * the fd table array.
+ *
+ * Return: -1 if @fd was not found in the fd table.
+ * Otherwise return the index of where @fd was
+ * found in the fd table.
+ */
 int get_fd_table_index(int fd) {
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
         if (fd_table[i].id == fd) {
