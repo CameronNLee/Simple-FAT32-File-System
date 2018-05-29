@@ -517,7 +517,8 @@ int fs_read(int fd, void *buf, size_t count)
         }
         //if count < or = BLOCK_SIZE, we just read in everything to buf.
         if(count <= BLOCK_SIZE){
-            if(count > bytes_in_file){
+            if(count > bytes_in_file){ 
+                //here is if count > file size.
                 memcpy(buf, bounce_buf, bytes_in_file);
                 fd_table[fd_index].offset +=  bytes_in_file;
                 return (int) bytes_in_file;
@@ -538,15 +539,33 @@ int fs_read(int fd, void *buf, size_t count)
             //read in the last byte in the else statement.
 
             if(multi_count > BLOCK_SIZE){
-                memcpy(buf+buf_offset, bounce_buf, BLOCK_SIZE);
-                buf_offset = buf_offset + BLOCK_SIZE;
-                multi_count = multi_count - BLOCK_SIZE;
-                db_index++;
+                if(multi_count > bytes_in_file && bytes_in_file < BLOCK_SIZE){
+                    //so in here, we've read the maximum amount of blocks
+                    //we then read what we can of the last block, and then return
+                    memcpy(buf+buf_offset, bounce_buf, bytes_in_file);
+                    buf_offset = buf_offset + bytes_in_file;
+                    fd_table[fd_index].offset += filesize;
+                    return (int)filesize;
+                }
+                else{
+                    memcpy(buf+buf_offset, bounce_buf, BLOCK_SIZE);
+                    buf_offset = buf_offset + BLOCK_SIZE;
+                    multi_count = multi_count - BLOCK_SIZE;
+                    bytes_in_file = bytes_in_file - BLOCK_SIZE;
+                    db_index++;
+                }          
             }
             else{
-                memcpy(buf+buf_offset, bounce_buf, multi_count);
-                buf_offset = buf_offset + (int)multi_count;
-                db_index++;
+                if(multi_count < bytes_in_file){
+                    memcpy(buf+buf_offset, bounce_buf, multi_count);
+                    buf_offset = buf_offset + (int)multi_count;
+                    db_index++;
+                }
+                else if(bytes_in_file < multi_count){
+                    memcpy(buf+buf_offset, bounce_buf, bytes_in_file);
+                    fd_table[fd_index].offset += filesize;
+                    return (int)filesize;
+                }
             }
 
         }
