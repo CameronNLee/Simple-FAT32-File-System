@@ -12,6 +12,7 @@
 int file_search(const char* filename);
 int get_root_entry(const char* filename);
 int get_fd_table_index(int fd);
+size_t get_and_set_fat();
 
 struct superblock {
     uint8_t signature[8]; // ECS150FS
@@ -281,7 +282,7 @@ int fs_create(const char *filename)
             strcpy((char *)root_entries[i].filename, filename);
             root_entries[i].filesize = 0;
             root_entries[i].first_db_index = 65535; // fat_EOC
-            break; // don't
+            break;
         }
     }
     return 0;
@@ -430,8 +431,44 @@ int fs_write(int fd, void *buf, size_t count)
     if (!sb) {
         return -1;
     }
-    printf("ohno\n");
-    return 0;
+
+    // if the fd index doesn't exist, return -1
+    int fd_index = get_fd_table_index(fd);
+    if (fd_index == -1) {
+        return -1;
+    }
+
+    if (count == 0) { // don't bother writing anything
+        return 0;
+    }
+
+    root_entries[fd_table[fd_index].root_entry].filesize = (uint32_t)count;
+    size_t amt_data_blocks
+            = root_entries[fd_table[fd_index].root_entry].filesize / BLOCK_SIZE;
+    ++amt_data_blocks; // due to truncation
+
+    // free_fat represents the first-fit fat entry (or entries)
+    // index (or indices) for the file being added, depending upon the
+    // filesize. in practice, this returns the jth entry of the fat_array.
+    size_t free_fat = 0;
+
+    if (amt_data_blocks == 1) {
+        free_fat = get_and_set_fat();
+        if (free_fat == 0) {
+            return 0; // cannot write; FAT is completely full
+        }
+
+        // update the first data block index
+        root_entries[fd_table[fd_index].root_entry].first_db_index
+                = (uint16_t)free_fat;
+        size_t db_index = free_fat + sb->root_dir_index;
+        ++db_index; // skip over DB #0
+        block_write(db_index, buf);
+    }
+/*    else {
+
+    }*/
+    return (int)count;
 }
 
 int fs_read(int fd, void *buf, size_t count)
@@ -485,7 +522,6 @@ int fs_read(int fd, void *buf, size_t count)
     // count == size, count < size, or count > size.
     // If count == size, we just memcpy everything.
     // if count > size, we only read up to size.
-    // TODO: < and >.
 
     if (filesize == fd_offset) {
         return 0;
@@ -720,4 +756,21 @@ int get_fd_table_index(int fd) {
         }
     }
     return -1; // fail state: could not find opened fd
+}
+
+size_t get_and_set_fat() {
+    for (int i = 0; i < sb->total_fat_blocks; ++i) {
+        for (int j = 0; j < 2048; ++j) { // 2048 entries per FAT block
+            if (fat_array[i].entries[j] == 0) {
+                // first assign the file less than 4096 bytes
+                // to a singular, proper FAT entry, and set that
+                // to 0xFFFF.
+                // if (filesize / BLOCK_SIZE )
+                fat_array[i].entries[j] = 65535;
+                return (size_t)j;
+            }
+        } // end of j loop
+    } // end of i loop
+    return 0; // no free fat_entries available
+              // => no free data blocks available.
 }
