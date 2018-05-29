@@ -454,6 +454,9 @@ int fs_read(int fd, void *buf, size_t count)
     //size_t multi_offset_cnt = count;
 
     if(fd_offset != 0){
+        //we gotta reset bytes_in_file to where it's offset to.
+        bytes_in_file = bytes_in_file - (uint32_t)fd_offset;
+
         while(offset_data_block != 0){
             if(block_read( (size_t)offset_db_index, bounce_buf) == -1){
                 return -1;
@@ -462,9 +465,16 @@ int fs_read(int fd, void *buf, size_t count)
 
             //This condition is if we just happen to read all that's left of one block (
             if(count <= BLOCK_SIZE - byte_offset){
-                memcpy(buf, bounce_buf + byte_offset, count);
-                fd_table[fd_index].offset += count;
-                return (int)count;
+                if(bytes_in_file > count){
+                    memcpy(buf, bounce_buf + byte_offset, count);
+                    fd_table[fd_index].offset += count;
+                    return (int)count;
+                }
+                else{
+                    memcpy(buf, bounce_buf + byte_offset, bytes_in_file);
+                    fd_table[fd_index].offset += bytes_in_file;
+                    return (int)bytes_in_file;
+                }
             }
             else{
 
@@ -556,6 +566,8 @@ int fs_read(int fd, void *buf, size_t count)
                 }          
             }
             else{
+                //There are basically two scenarios here.
+                //if multi count is the limiter, or if filesize is the limiter.
                 if(multi_count < bytes_in_file){
                     memcpy(buf+buf_offset, bounce_buf, multi_count);
                     buf_offset = buf_offset + (int)multi_count;
