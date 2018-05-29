@@ -44,7 +44,7 @@ struct fat_block {
 struct root {
     uint8_t filename[FS_FILENAME_LEN];
     uint32_t filesize;
-    uint16_t first_db_index;
+    uint16_t first_db_num;
     uint8_t padding[10]; // to prevent malloc issues
 }__attribute__((__packed__));
 
@@ -281,7 +281,7 @@ int fs_create(const char *filename)
         if (root_entries[i].filename[0] == '\0') {
             strcpy((char *)root_entries[i].filename, filename);
             root_entries[i].filesize = 0;
-            root_entries[i].first_db_index = 65535; // fat_EOC
+            root_entries[i].first_db_num = 65535; // fat_EOC
             break;
         }
     }
@@ -290,6 +290,7 @@ int fs_create(const char *filename)
 
 int fs_delete(const char *filename)
 {
+
     if (!sb) {
         return -1;
     }
@@ -302,19 +303,52 @@ int fs_delete(const char *filename)
         return -1;
     }
 
-    // checking if filename is inside the filesystem.
-    // if it isn't, return -1 (can't delete file that doesn't exist)
-    for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (strncmp((char *) root_entries[i].filename,
-                    filename, FS_FILENAME_LEN) == 0) {
-            root_entries[i].filename[0] = '\0';
-            root_entries[i].first_db_index = 0;
-            root_entries[i].filesize = 0;
+    int entry = get_root_entry(filename);
+
+    // we want a copy of the first db number
+    // for freeing the fat entry.
+    size_t first_db_num = root_entries[entry].first_db_num;
+    size_t db_index = first_db_num;
+    db_index += sb->root_dir_index;
+    ++db_index; // skip over DB #0
+
+    // TODO free the data and free the FAT
+
+    // "free" the data block associated with
+    // the file by overwriting the entire block
+    // with 0's. (note: only if the # of DBs
+    // associated with the file being deleted
+    // is exactly equal to 1.)
+    void *empty = malloc(BLOCK_SIZE);
+    if (block_read(db_index, empty)) {
+        return -1;
+    }
+    memset(empty, 0, BLOCK_SIZE);
+
+    if (block_write(db_index, empty)) {
+        return -1;
+    }
+
+    // freeing the associated fat entry/entries
+    // by replacing them with a 0 value
+
+    // if just freeing a single fat entry pointing to
+    // a single data block:
+
+    // note: there is a way to calculate this without
+    // relying on the i loop
+    for (int i = 0; i < sb->total_fat_blocks; ++i) {
+        if (fat_array[i].entries[first_db_num] == 65535) {
+            fat_array[i].entries[first_db_num] = 0;
             break;
         }
     }
 
-    // TODO free the data and free the FAT
+    // freeing the root entry
+    memset((char *)root_entries[entry].filename, 0, 16);
+    root_entries[entry].filename[0] = '\0';
+    root_entries[entry].first_db_num = 0;
+    root_entries[entry].filesize = 0;
 
     return 0;
 }
@@ -331,7 +365,7 @@ int fs_ls(void)
         if (root_entries[i].filename[0] != '\0') {
             printf("file: %s, size: %d, data_blk: %d\n",
                    root_entries[i].filename, root_entries[i].filesize,
-                   root_entries[i].first_db_index);
+                   root_entries[i].first_db_num);
         }
     }
     return 0;
@@ -459,7 +493,7 @@ int fs_write(int fd, void *buf, size_t count)
         }
 
         // update the first data block index
-        root_entries[fd_table[fd_index].root_entry].first_db_index
+        root_entries[fd_table[fd_index].root_entry].first_db_num
                 = (uint16_t)free_fat;
         size_t db_index = free_fat + sb->root_dir_index;
         ++db_index; // skip over DB #0
@@ -509,7 +543,7 @@ int fs_read(int fd, void *buf, size_t count)
     // is processed in the loops below. At declaration, db_index will
     // point to the very first data block associated with the file.
     size_t db_index
-            = root_entries[fd_table[fd_index].root_entry].first_db_index;
+            = root_entries[fd_table[fd_index].root_entry].first_db_num;
     ++db_index; // because db counts up from 0
     db_index = db_index + sb->root_dir_index;
 
@@ -762,7 +796,7 @@ size_t get_and_set_fat() {
     for (int i = 0; i < sb->total_fat_blocks; ++i) {
         for (int j = 0; j < 2048; ++j) { // 2048 entries per FAT block
             if (fat_array[i].entries[j] == 0) {
-                // first assign the file less than 4096 bytes
+                // assign the file less than 4096 bytes
                 // to a singular, proper FAT entry, and set that
                 // to 0xFFFF.
                 // if (filesize / BLOCK_SIZE )
