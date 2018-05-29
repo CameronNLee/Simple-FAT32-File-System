@@ -20,14 +20,14 @@ struct superblock {
     uint16_t data_block_index;
     uint16_t total_data_blocks;
     uint8_t total_fat_blocks;
-    uint8_t padding[4079];
+    uint8_t padding[4079]; // to prevent malloc errors
 }__attribute__((__packed__));
 
+// we will have an array of FAT blocks.
+// each FAT block has an array of entries
+// (2048 entries for a total of 4096 bytes)
 struct fat_block {
-    // we have an array of FAT blocks.
-    // each FAT block has an array of entries
-    // (2048 entries for a total of 4096 bytes)
-    uint16_t **entries;
+    uint16_t entries[2048];
 }__attribute__((__packed__));
 
 /*struct data_block {
@@ -37,11 +37,14 @@ struct fat_block {
     uint8_t **db_entries;
 }__attribute__((__packed__));*/
 
+// we will have an array of root entries.
+// each root entry itself has an array
+// with indices representing the struct members.
 struct root {
     uint8_t filename[FS_FILENAME_LEN];
     uint32_t filesize;
     uint16_t first_db_index;
-    uint8_t padding[10];
+    uint8_t padding[10]; // to prevent malloc issues
 }__attribute__((__packed__));
 
 struct fd {
@@ -51,11 +54,15 @@ struct fd {
     int root_entry;
 }__attribute__((__packed__));
 
+// we will use this fact that sb is init as NULL
+// to check in the other functions if the disk has
+// been mounted or not. sb will only be NULL if
+// fs_mount() hasn't been called yet.
 static struct superblock* sb = NULL;
 static struct fat_block* fat_array = NULL;
 // static struct data_block* db_array = NULL;
-static struct root* root_global = NULL;
-static struct fd* fd_table = NULL;
+static struct root root_entries[FS_FILE_MAX_COUNT]; // 128 entries for 1 root block
+static struct fd fd_table[FS_OPEN_MAX_COUNT]; // maximum 32 fd's open at a time
 
 int fs_mount(const char *diskname)
 {
@@ -76,22 +83,22 @@ int fs_mount(const char *diskname)
     }
 
     // begin loading metadata for the fat struct
-    fat_array = malloc(sizeof(struct fat_block));
-    fat_array->entries = malloc(sb->total_fat_blocks);
+    fat_array = malloc(sb->total_fat_blocks * sizeof(struct fat_block));
+    // fat_array->entries = malloc(sb->total_fat_blocks);
 
     // entries represents the array of fat blocks themselves
     // entries[i] however is the array of fat block entries,
     // per fat block. Hence, malloc 4096 bytes for
     // each i index in entries[i].
-    for(int i = 0; i < sb->total_fat_blocks; i++){
+    /*for(int i = 0; i < sb->total_fat_blocks; i++){
         fat_array->entries[i] = malloc(BLOCK_SIZE);
-    }
+    }*/
     int total_fat_counter = (int)sb->total_fat_blocks;
     size_t read_counter = 1;
 
     while (total_fat_counter != 0) {
         if (block_read(read_counter,
-                       fat_array->entries[read_counter-1]) == -1) {
+                       fat_array[read_counter-1].entries) == -1) {
             return -1;
         }
         read_counter++;
@@ -118,17 +125,17 @@ int fs_mount(const char *diskname)
         --total_db_counter;
     }*/
 
-    //Now we do the same thing for the root_global
+    //Now we do the same thing for the root_entries
     //almost exactly the same as what we did for the superblock
     // 32 bytes * 128 entries
-    root_global = malloc(sizeof(struct root) * FS_FILE_MAX_COUNT);
-    if (block_read((size_t)sb->root_dir_index, root_global) == -1) {
+    // root_entries = malloc(sizeof(struct root) * FS_FILE_MAX_COUNT);
+    if (block_read((size_t)sb->root_dir_index, root_entries) == -1) {
         return -1;
     }
 
     // finally, malloc space for the fd table
     // (maximum fd's it can hold at a time is 32)
-    fd_table = malloc(sizeof(struct fd) * FS_OPEN_MAX_COUNT);
+    // fd_table = malloc(sizeof(struct fd) * FS_OPEN_MAX_COUNT);
     for(int i = 0; i < FS_OPEN_MAX_COUNT; ++i){
         fd_table[i].id = -1; //we set all of them to -1, b/c none has been opened
         fd_table[i].offset = 0; //always initliazed as 0
@@ -156,12 +163,12 @@ int fs_umount(void){
     }
     //Next is the FAT blocks
     for(size_t i = 0; i < sb->total_fat_blocks; i++){
-        if(block_write((i+1), fat_array->entries[i]) == -1){
+        if(block_write((i+1), fat_array[i].entries) == -1){
             return -1;
         }
     }
     //Afterwards is the root.
-    if(block_write(sb->root_dir_index, root_global) == -1){
+    if(block_write(sb->root_dir_index, root_entries) == -1){
         return -1;
     }
     //We then finally close it
@@ -170,9 +177,9 @@ int fs_umount(void){
     }
     // Free the globals
     free(sb);
-    free(root_global);
+    // free(root_entries);
     free(fat_array);
-    free(fd_table);
+    // free(fd_table);
     return 0;
 }
 
@@ -193,20 +200,20 @@ int fs_info(void)
 
     for (int i = 0; i < sb->total_fat_blocks; ++i) {
         for (int j = 0; j < 2048; ++j) { // 2048 entries per FAT block
-            if (fat_array->entries[i][j] != 0) {
+            if (fat_array[i].entries[j] != 0) {
                 ++fat_occupied_count;
             }
         }
     }
 
     // now calculate the amount of occupied root entries
-    // by iterating through the root_global array and
+    // by iterating through the root_entries array and
     // incrementing occupied_root_count by 1 each time
     // it encounters a null character in each entry's
     // filename member.
     int root_entry_free_count = 0;
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (root_global[i].filename[0] == '\0') {
+        if (root_entries[i].filename[0] == '\0') {
             ++root_entry_free_count;
         }
     }
@@ -253,7 +260,7 @@ int fs_create(const char *filename)
     // already populated. i.e. 128 files present; no more can be added.
     int file_counter = 0; // temporary variable
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (root_global[i].filename[0] != '\0') {
+        if (root_entries[i].filename[0] != '\0') {
             ++file_counter;
         }
     }
@@ -264,10 +271,10 @@ int fs_create(const char *filename)
     // find first occurrence of an empty root entry
     // (add file if first filename char is NULL char)
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (root_global[i].filename[0] == '\0') {
-            strcpy((char *)root_global[i].filename, filename);
-            root_global[i].filesize = 0;
-            root_global[i].first_db_index = 65535; // fat_EOC
+        if (root_entries[i].filename[0] == '\0') {
+            strcpy((char *)root_entries[i].filename, filename);
+            root_entries[i].filesize = 0;
+            root_entries[i].first_db_index = 65535; // fat_EOC
             break; // don't
         }
     }
@@ -288,11 +295,11 @@ int fs_delete(const char *filename)
     // checking if filename is inside the filesystem.
     // if it isn't, return -1 (can't delete file that doesn't exist)
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (strncmp((char *) root_global[i].filename,
+        if (strncmp((char *) root_entries[i].filename,
                     filename, FS_FILENAME_LEN) == 0) {
-            root_global[i].filename[0] = '\0';
-            root_global[i].first_db_index = 0;
-            root_global[i].filesize = 0;
+            root_entries[i].filename[0] = '\0';
+            root_entries[i].first_db_index = 0;
+            root_entries[i].filesize = 0;
             break;
         }
     }
@@ -311,10 +318,10 @@ int fs_ls(void)
     }
     printf("FS Ls:\n");
     for (size_t i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (root_global[i].filename[0] != '\0') {
+        if (root_entries[i].filename[0] != '\0') {
             printf("file: %s, size: %d, data_blk: %d\n",
-                   root_global[i].filename, root_global[i].filesize,
-                   root_global[i].first_db_index);
+                   root_entries[i].filename, root_entries[i].filesize,
+                   root_entries[i].first_db_index);
         }
     }
     return 0;
@@ -370,8 +377,8 @@ int fs_stat(int fd)
     }
 
     //we get our curernt root entry in our fd_table, and use that
-    //to get the file size in our root_global array.
-    return root_global[fd_table[fd_index].root_entry].filesize;
+    //to get the file size in our root_entries array.
+    return root_entries[fd_table[fd_index].root_entry].filesize;
 }
 
 int fs_lseek(int fd, size_t offset){
@@ -388,7 +395,7 @@ int fs_lseek(int fd, size_t offset){
 
     //if offset is greater than the filesize, obviously an error
     //TODO: there should be other checks for valid offset.
-    if(offset > root_global[fd_table[fd_index].root_entry].filesize){
+    if(offset > root_entries[fd_table[fd_index].root_entry].filesize){
         return -1;
     }
 
@@ -419,7 +426,7 @@ int fs_read(int fd, void *buf, size_t count)
     // Which is the file size/4096 + 1 (b/c div truncates the result).
     // Ex. if @filename's filesize was 4097 bytes, then
     // amnt_data_blocks would be 2.
-    uint32_t filesize = root_global[fd_table[fd_index].root_entry].filesize;
+    uint32_t filesize = root_entries[fd_table[fd_index].root_entry].filesize;
     int amnt_data_blocks = ((int)filesize/BLOCK_SIZE) + 1;
     void* bounce_buf = malloc(BLOCK_SIZE); //used to hold a temp data block.
     uint32_t bytes_in_file = filesize;
@@ -427,7 +434,7 @@ int fs_read(int fd, void *buf, size_t count)
     // db_index describes all the data block indices associated with
     // the file pointed to by fd. db_index will change values as it
     // is processed in the loops below.
-    size_t db_index = root_global[fd_table[fd_index].root_entry].first_db_index;
+    size_t db_index = root_entries[fd_table[fd_index].root_entry].first_db_index;
     ++db_index; // because db counts up from 0
     db_index = db_index + sb->root_dir_index;
 
@@ -614,7 +621,7 @@ int fs_read(int fd, void *buf, size_t count)
  */
 int file_search(const char* filename) {
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (strncmp( (char*)root_global[i].filename,
+        if (strncmp( (char*)root_entries[i].filename,
                      filename, FS_FILENAME_LEN ) == 0) {
             return 0; // found a match
         }
@@ -634,7 +641,7 @@ int file_search(const char* filename) {
  */
 int get_root_entry(const char* filename) {
     for (int i = 0; i < FS_FILE_MAX_COUNT; ++i) {
-        if (strncmp( (char*)root_global[i].filename,
+        if (strncmp( (char*)root_entries[i].filename,
                      filename, FS_FILENAME_LEN ) == 0) {
             return i; // found a match
         }
