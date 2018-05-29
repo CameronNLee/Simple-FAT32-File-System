@@ -644,7 +644,7 @@ int fs_read(int fd, void *buf, size_t count)
                     buf_offset = buf_offset + multi_count;
                     db_index++;
                 }
-                else if (bytes_in_file < multi_count) {
+                else if (bytes_in_file <= multi_count) {
                     memcpy(buf+buf_offset, bounce_buf, bytes_in_file);
                     fd_table[fd_index].offset += filesize;
                     free(bounce_buf);
