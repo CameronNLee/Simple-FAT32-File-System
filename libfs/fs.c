@@ -452,62 +452,61 @@ int fs_read(int fd, void *buf, size_t count)
     int offset_db_index = (int)db_index + block_offset;
     //size_t multi_offset_cnt = count;
 
+    if(fd_offset != 0){
+        while(offset_data_block != 0){
+            if(block_read( (size_t)offset_db_index, bounce_buf) == -1){
+                return -1;
+            }
+            //Now we've offset'd all the blocks, we should offset bytes in the block.
 
-    while(offset_data_block != 0){
-        if(block_read( (size_t)offset_db_index, bounce_buf) == -1){
-            return -1;
-        }
-        //Now we've offset'd all the blocks, we should offset bytes in the block.
+            //This condition is if we just happen to read all that's left of one block (
+            if(count <= BLOCK_SIZE - byte_offset){
+                memcpy(buf, bounce_buf + byte_offset, count);
+                fd_table[fd_index].offset += count;
+                return (int)count;
+            }
+            else{
 
-        //This condition is if we just happen to read all that's left of one block (
-        if(count <= BLOCK_SIZE - byte_offset){
-            memcpy(buf, bounce_buf + byte_offset, count);
-            fd_table[fd_index].offset += count;
-            return (int)count;
-        }
-        else{
+                //If we've offsetted into middle of block, finish reading that block
+                if(byte_offset > 0){ //should only run thru this fxn ONCE at most.
+                    memcpy(buf, bounce_buf + byte_offset, byte_offset);
+                    buf_offset = buf_offset + (int)byte_offset;
+                    multi_count = multi_count - byte_offset;
+                    offset_db_index++;
+                    byte_offset = 0; //safe to do this now, since we'll never use it again
 
-            //If we've offsetted into middle of block, finish reading that block
-            if(byte_offset > 0){ //should only run thru this fxn ONCE at most.
-                memcpy(buf, bounce_buf + byte_offset, byte_offset);
-                buf_offset = buf_offset + (int)byte_offset;
-                multi_count = multi_count - byte_offset;
-                offset_db_index++;
-                byte_offset = 0; //safe to do this now, since we'll never use it again
+                    //if multi_count 0, we just return.
+                    if(multi_count == 0){
+                        fd_table[fd_index].offset += multi_count;
+                        return (int)multi_count;
+                    }
 
-                //if multi_count 0, we just return.
-                if(multi_count == 0){
-                    fd_table[fd_index].offset += multi_count;
-                    return (int)multi_count;
                 }
 
+                    //so if multi_count is still greater than a BLOCK_SIZE, we just memcpy
+                    //the whole block into buf.
+                else if(multi_count > BLOCK_SIZE){
+                    memcpy(buf + buf_offset, bounce_buf, BLOCK_SIZE);
+                    buf_offset = buf_offset + BLOCK_SIZE;
+                    multi_count = multi_count - BLOCK_SIZE;
+                    offset_db_index++;
+                }
+
+                    //multi_count less than BLOCK_SIZE
+                    //we read what's left of the block.
+                else{
+                    memcpy(buf + buf_offset, bounce_buf, multi_count);
+                    buf_offset = buf_offset + (int)multi_count;
+                    offset_db_index++;
+                }
             }
-
-                //so if multi_count is still greater than a BLOCK_SIZE, we just memcpy
-                //the whole block into buf.
-            else if(multi_count > BLOCK_SIZE){
-                memcpy(buf + buf_offset, bounce_buf, BLOCK_SIZE);
-                buf_offset = buf_offset + BLOCK_SIZE;
-                multi_count = multi_count - BLOCK_SIZE;
-                offset_db_index++;
-            }
-
-                //multi_count less than BLOCK_SIZE
-                //we read what's left of the block.
-            else{
-                memcpy(buf + buf_offset, bounce_buf, multi_count);
-                buf_offset = buf_offset + (int)multi_count;
-                offset_db_index++;
-            }
-        }
-
-        offset_data_block--;
-
+            offset_data_block--;
+        }    
         fd_table[fd_index].offset += count;
         return (int)count;
     }
 
-
+    
     //so we keep on reading in data blocks into bounce_buf
     //then we write the bounce_buf into buf, and then increment the offset for
     //buf.
