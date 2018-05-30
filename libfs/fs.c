@@ -547,7 +547,7 @@ int fs_read(int fd, void *buf, size_t count)
     //We now populate our fat_location array.
     size_t first_db_num
             = root_entries[fd_table[fd_index].root_entry].first_db_num;
-    int fat_block_index = 0;
+    int fat_block_index = 0; //get which FAT block DB is located in
     if (first_db_num >= 2048) {
         while (first_db_num != 0) {
             ++fat_block_index;
@@ -555,15 +555,13 @@ int fs_read(int fd, void *buf, size_t count)
         }
     }
 
-
-    fat_location[fat_block_index] = (uint16_t)db_index; //first one is always db_index
-
-    fat_array[0].entries[];
+    fat_location[0] = (uint16_t)fat_array[fat_block_index].entries[db_index];
+    //fat_location[fat_block_index] = (uint16_t)db_index;
+    //first one is always db_index
 
     for(int i = 1; i < amnt_data_blocks; i++){
-        if(fat_location[i-1] != 65535){
-            fat_location[i] = fat_location[i-1];
-        }
+        //we get the index of what the current one is "pointing" to
+        fat_location[i] = fat_array[fat_block_index].entries[fat_location[i-1]];
     }
 
 
