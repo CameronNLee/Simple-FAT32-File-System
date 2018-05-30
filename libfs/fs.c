@@ -555,13 +555,17 @@ int fs_read(int fd, void *buf, size_t count)
         }
     }
 
-    fat_location[0] = (uint16_t)fat_array[fat_block_index].entries[db_index];
+    //this is how we get the first data block
+    fat_location[0] = first_db_num;
+
     //fat_location[fat_block_index] = (uint16_t)db_index;
     //first one is always db_index
+    uint16_t match;
 
+    //subsequent data blocks are simply the value in that fat arary location
     for(int i = 1; i < amnt_data_blocks; i++){
         //we get the index of what the current one is "pointing" to
-        fat_location[i] = fat_array[fat_block_index].entries[fat_location[i-1]];
+        fat_location[i] = fat_array[fat_block_index].entrie[fat_location[i-1]];
     }
 
 
