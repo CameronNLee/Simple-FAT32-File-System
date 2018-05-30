@@ -85,15 +85,10 @@ int fs_mount(const char *diskname)
 
     // begin loading metadata for the fat struct
     fat_array = malloc(sb->total_fat_blocks * sizeof(struct fat_block));
-    // fat_array->entries = malloc(sb->total_fat_blocks);
 
-    // entries represents the array of fat blocks themselves
+    // fat_array represents the array of fat blocks themselves
     // entries[i] however is the array of fat block entries,
-    // per fat block. Hence, malloc 4096 bytes for
-    // each i index in entries[i].
-    /*for(int i = 0; i < sb->total_fat_blocks; i++){
-        fat_array->entries[i] = malloc(BLOCK_SIZE);
-    }*/
+    // per fat block.
     int total_fat_counter = (int)sb->total_fat_blocks;
     size_t read_counter = 1;
 
@@ -104,6 +99,10 @@ int fs_mount(const char *diskname)
         }
         read_counter++;
         --total_fat_counter;
+    }
+    // making sure the first entry loaded was 0xFFFF
+    if (fat_array[0].entries[0] != 65535) {
+        return -1;
     }
 
 /*    // begin assignment of data blocks to db_array
@@ -126,17 +125,14 @@ int fs_mount(const char *diskname)
         --total_db_counter;
     }*/
 
-    //Now we do the same thing for the root_entries
-    //almost exactly the same as what we did for the superblock
-    // 32 bytes * 128 entries
-    // root_entries = malloc(sizeof(struct root) * FS_FILE_MAX_COUNT);
+    // Now we do the same thing for the root_entries
+    // (32 bytes * 128 entries = 1 whole root block)
     if (block_read((size_t)sb->root_dir_index, root_entries) == -1) {
         return -1;
     }
 
     // finally, assign initial values for the fd table
     // (maximum fd's it can hold at a time is 32)
-    // fd_table = malloc(sizeof(struct fd) * FS_OPEN_MAX_COUNT);
     for(int i = 0; i < FS_OPEN_MAX_COUNT; ++i) {
         fd_table[i].id = -1; // set all to -1, b/c none has been opened
         fd_table[i].offset = 0; //always init as 0
