@@ -316,9 +316,6 @@ int fs_delete(const char *filename)
     // associated with the file being deleted
     // is exactly equal to 1.)
     void *empty = malloc(BLOCK_SIZE);
-    if (block_read(db_index, empty)) {
-        return -1;
-    }
     memset(empty, 0, BLOCK_SIZE);
 
     if (block_write(db_index, empty)) {
@@ -397,10 +394,10 @@ int fs_close(int fd)
     if (!sb) {
         return -1;
     }
-    // out of bounds error. Potentially accounts for
+    // out of bounds error. Accounts for
     // fd arg that is not currently open
-    // since the struct fd member id is assigned as
-    // -1 by default.
+    // since the struct fd member id is
+    // assigned as -1 by default.
     if (fd < 0) {
         return -1;
     }
@@ -447,8 +444,8 @@ int fs_lseek(int fd, size_t offset){
     }
 
     //if offset is greater than the filesize, obviously an error
-    //TODO: there should be other checks for valid offset.
-    if(offset > root_entries[fd_table[fd_index].root_entry].filesize){
+    // TODO: there should be other checks for valid offset.
+    if(offset > root_entries[fd_table[fd_index].root_entry].filesize) {
         return -1;
     }
 
@@ -548,11 +545,24 @@ int fs_read(int fd, void *buf, size_t count)
     db_index = db_index + sb->root_dir_index;
 
     //We now populate our fat_location array.
-    fat_location[0] = db_index; //first one is always db_index
+    size_t first_db_num
+            = root_entries[fd_table[fd_index].root_entry].first_db_num;
+    int fat_block_index = 0;
+    if (first_db_num >= 2048) {
+        while (first_db_num != 0) {
+            ++fat_block_index;
+            first_db_num /= 2048;
+        }
+    }
+
+
+    fat_location[fat_block_index] = (uint16_t)db_index; //first one is always db_index
+
+    fat_array[0].entries[];
 
     for(int i = 1; i < amnt_data_blocks; i++){
         if(fat_location[i-1] != 65535){
-          fat_location[i] = fat_location[i-1];
+            fat_location[i] = fat_location[i-1];
         }
     }
 
@@ -635,16 +645,16 @@ int fs_read(int fd, void *buf, size_t count)
                         return (int)multi_count;
                     }
                 }
-                // so if multi_count is still greater than BLOCK_SIZE,
-                // we just memcpy the whole block into buf.
+                    // so if multi_count is still greater than BLOCK_SIZE,
+                    // we just memcpy the whole block into buf.
                 else if(multi_count > BLOCK_SIZE) {
                     memcpy(buf + buf_offset, bounce_buf, BLOCK_SIZE);
                     buf_offset = buf_offset + BLOCK_SIZE;
                     multi_count = multi_count - BLOCK_SIZE;
                     offset_db_index++;
                 }
-                // multi_count less than BLOCK_SIZE
-                // we read what's left of the block.
+                    // multi_count less than BLOCK_SIZE
+                    // we read what's left of the block.
                 else {
                     memcpy(buf + buf_offset, bounce_buf, multi_count);
                     fd_table[fd_index].offset += count;
@@ -696,12 +706,12 @@ int fs_read(int fd, void *buf, size_t count)
                 return (int)count;
             }
         }
-        // if we're reading in multiple blocks, we write to the offset of
-        // buf each time. We still memcpy the BLOCK_SIZE every time.
+            // if we're reading in multiple blocks, we write to the offset of
+            // buf each time. We still memcpy the BLOCK_SIZE every time.
         else {
-        // So multicount is for when the amnt of bytes to be read is for example
-        // 4097, so we read in 4096, decrement multicount by 4096, then we
-        // read in the last byte in the else statement.
+            // So multicount is for when the amnt of bytes to be read is for example
+            // 4097, so we read in 4096, decrement multicount by 4096, then we
+            // read in the last byte in the else statement.
             if (multi_count > BLOCK_SIZE) {
                 if (multi_count > bytes_in_file && bytes_in_file < BLOCK_SIZE) {
                     // here, we've read the maximum amount of blocks
