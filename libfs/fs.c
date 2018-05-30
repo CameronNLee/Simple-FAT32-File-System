@@ -248,7 +248,7 @@ int fs_create(const char *filename)
     }
 
     // check if filename is null-terminated
-    if ( filename[strlen(filename)] != '\0') {
+    if (!strchr(filename, '\0')) {
         return -1;
     }
 
@@ -294,6 +294,12 @@ int fs_delete(const char *filename)
     if (strlen(filename) >= FS_FILENAME_LEN || strlen(filename) == 0) {
         return -1;
     }
+
+    // check if filename is null-terminated
+    if (!strchr(filename, '\0')) {
+        return -1;
+    }
+    
     // checks if filename is not found
     if (file_search(filename) != 0) {
         return -1;
@@ -374,7 +380,12 @@ int fs_open(const char *filename) {
         return -1;
     }
     // Check if file name is invalid
-    if (strlen(filename) >= FS_FILENAME_LEN || strlen(filename) == 0) {
+    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+        return -1;
+    }
+
+    // check if filename is null-terminated
+    if (!strchr(filename, '\0')) {
         return -1;
     }
 
