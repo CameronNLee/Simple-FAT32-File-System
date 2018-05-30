@@ -140,8 +140,8 @@ int fs_mount(const char *diskname)
     return 0;
 }
 
-int fs_umount(void){
-
+int fs_umount(void)
+{
     // error check if no disk was mounted to begin with
     if (!sb) {
         return -1;
@@ -159,17 +159,17 @@ int fs_umount(void){
         return -1;
     }
     // Next is the FAT blocks
-    for(size_t i = 0; i < sb->total_fat_blocks; i++){
-        if(block_write((i+1), fat_array[i].entries) == -1){
+    for (size_t i = 0; i < sb->total_fat_blocks; i++) {
+        if(block_write((i+1), fat_array[i].entries) == -1) {
             return -1;
         }
     }
     // Afterwards is the root.
-    if(block_write(sb->root_dir_index, root_entries) == -1){
+    if (block_write(sb->root_dir_index, root_entries) == -1) {
         return -1;
     }
     // We then close the disk
-    if(block_disk_close() == -1){
+    if (block_disk_close() == -1) {
         return -1;
     }
     // Finally, free/wipe clean the globals
@@ -243,7 +243,7 @@ int fs_create(const char *filename)
     // error checking for invalid filename
     // we define "invalid" to be filenames with 0 bytes (empty)
     // or above the 16 bytes specified
-    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+    if (strlen(filename) >= FS_FILENAME_LEN || strlen(filename) == 0) {
         return -1;
     }
 
@@ -291,7 +291,7 @@ int fs_delete(const char *filename)
         return -1;
     }
     // Check if file name is invalid
-    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+    if (strlen(filename) >= FS_FILENAME_LEN || strlen(filename) == 0) {
         return -1;
     }
     // checks if filename is not found
@@ -374,7 +374,7 @@ int fs_open(const char *filename) {
         return -1;
     }
     // Check if file name is invalid
-    if (strlen(filename) > FS_FILENAME_LEN || strlen(filename) == 0) {
+    if (strlen(filename) >= FS_FILENAME_LEN || strlen(filename) == 0) {
         return -1;
     }
 
