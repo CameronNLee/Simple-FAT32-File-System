@@ -8,6 +8,8 @@
 #include "disk.h"
 #include "fs.h"
 
+#define FAT_EOC 65535
+
 /* HELPER FUNCTION PROTOTYPES */
 int file_search(const char* filename);
 int get_root_entry(const char* filename);
@@ -101,7 +103,7 @@ int fs_mount(const char *diskname)
         --total_fat_counter;
     }
     // making sure the first entry loaded was 0xFFFF
-    if (fat_array[0].entries[0] != 65535) {
+    if (fat_array[0].entries[0] != FAT_EOC) {
         return -1;
     }
 
@@ -277,7 +279,7 @@ int fs_create(const char *filename)
         if (root_entries[i].filename[0] == '\0') {
             strcpy((char *)root_entries[i].filename, filename);
             root_entries[i].filesize = 0;
-            root_entries[i].first_db_num = 65535; // fat_EOC
+            root_entries[i].first_db_num = FAT_EOC; // fat_EOC
             break;
         }
     }
@@ -299,7 +301,7 @@ int fs_delete(const char *filename)
     if (!strchr(filename, '\0')) {
         return -1;
     }
-    
+
     // checks if filename is not found
     if (file_search(filename) != 0) {
         return -1;
@@ -344,8 +346,8 @@ int fs_delete(const char *filename)
         }
     }
 
-    if (fat_array[fat_block_index].entries[first_db_num] == 65535) {
-            fat_array[fat_block_index].entries[first_db_num] = 0;
+    if (fat_array[fat_block_index].entries[first_db_num] == FAT_EOC) {
+        fat_array[fat_block_index].entries[first_db_num] = 0;
     }
 
     // freeing the root entry
@@ -571,7 +573,7 @@ int fs_read(int fd, void *buf, size_t count)
     }
 
     //this is how we get the first data block
-    fat_location[0] = first_db_num;
+    fat_location[0] = (uint16_t)first_db_num;
 
     //fat_location[fat_block_index] = (uint16_t)db_index;
     //first one is always db_index
@@ -633,7 +635,8 @@ int fs_read(int fd, void *buf, size_t count)
             // all that's left of one block
             if (count <= BLOCK_SIZE - byte_offset) {
                 if (bytes_in_file > count) {
-                    memcpy(buf, bounce_buf + byte_offset, count);
+                    memcpy(buf + buf_offset,
+                           bounce_buf + byte_offset,multi_count);
                     fd_table[fd_index].offset += count;
                     free(bounce_buf);
                     return (int)count;
@@ -649,7 +652,7 @@ int fs_read(int fd, void *buf, size_t count)
                 //If we've offsetted into middle of block,
                 // finish reading that block
                 if (byte_offset > 0) { //should only run this fxn at most ONCE.
-                    memcpy(buf, bounce_buf + byte_offset, byte_offset);
+                    memcpy(buf, bounce_buf + byte_offset, (BLOCK_SIZE- byte_offset));
                     buf_offset = buf_offset + (BLOCK_SIZE - byte_offset);
                     multi_count = multi_count - (BLOCK_SIZE - byte_offset);
                     offset_db_index++;
@@ -842,11 +845,12 @@ size_t get_and_set_fat() {
                 // to a singular, proper FAT entry, and set that
                 // to 0xFFFF.
                 // if (filesize / BLOCK_SIZE )
-                fat_array[i].entries[j] = 65535;
+                fat_array[i].entries[j] = FAT_EOC;
                 return (size_t)j;
             }
         } // end of j loop
     } // end of i loop
     return 0; // no free fat_entries available
-              // => no free data blocks available.
+    // => no free data blocks available.
 }
+
