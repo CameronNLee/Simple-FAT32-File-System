@@ -330,11 +330,16 @@ int fs_delete(const char *filename)
 
     // note: there is a way to calculate this without
     // relying on the i loop
-    for (int i = 0; i < sb->total_fat_blocks; ++i) {
-        if (fat_array[i].entries[first_db_num] == 65535) {
-            fat_array[i].entries[first_db_num] = 0;
-            break;
+    int fat_block_index = 0;
+    if (first_db_num >= 2048) {
+        while (first_db_num != 0) {
+            ++fat_block_index;
+            first_db_num /= 2048;
         }
+    }
+
+    if (fat_array[fat_block_index].entries[first_db_num] == 65535) {
+            fat_array[fat_block_index].entries[first_db_num] = 0;
     }
 
     // freeing the root entry
@@ -427,8 +432,8 @@ int fs_stat(int fd)
     return root_entries[fd_table[fd_index].root_entry].filesize;
 }
 
-int fs_lseek(int fd, size_t offset){
-
+int fs_lseek(int fd, size_t offset)
+{
     if (!sb) {
         return -1;
     }
@@ -437,14 +442,13 @@ int fs_lseek(int fd, size_t offset){
         return -1;
     }
 
-    //if the fd index doesn't exist, return -1
+    // if the fd index doesn't exist, return -1
     int fd_index = get_fd_table_index(fd);
-    if(fd_index == -1){
+    if(fd_index == -1) {
         return -1;
     }
 
-    //if offset is greater than the filesize, obviously an error
-    // TODO: there should be other checks for valid offset.
+    // if offset is greater than the filesize, obviously an error
     if(offset > root_entries[fd_table[fd_index].root_entry].filesize) {
         return -1;
     }
@@ -560,12 +564,11 @@ int fs_read(int fd, void *buf, size_t count)
 
     //fat_location[fat_block_index] = (uint16_t)db_index;
     //first one is always db_index
-    uint16_t match;
 
     //subsequent data blocks are simply the value in that fat arary location
     for(int i = 1; i < amnt_data_blocks; i++){
         //we get the index of what the current one is "pointing" to
-        fat_location[i] = fat_array[fat_block_index].entrie[fat_location[i-1]];
+        fat_location[i] = fat_array[fat_block_index].entries[fat_location[i-1]];
     }
 
 
@@ -608,7 +611,8 @@ int fs_read(int fd, void *buf, size_t count)
                 break;
             }
 
-            if (block_read(fat_location[offset_db_index], bounce_buf) == -1) {
+            if (block_read(fat_location[offset_db_index] + sb->root_dir_index + 1,
+                           bounce_buf) == -1) {
                 return -1;
             }
             //Now that we have offset'd all the blocks,
@@ -687,7 +691,7 @@ int fs_read(int fd, void *buf, size_t count)
             break;
         }
 
-        if (block_read(fat_location[iterator], bounce_buf) == -1) {
+        if (block_read((fat_location[iterator] + sb->root_dir_index + 1), bounce_buf) == -1) {
             free(bounce_buf);
             return -1;
         }
@@ -749,6 +753,7 @@ int fs_read(int fd, void *buf, size_t count)
             }
         }
         --amnt_data_blocks;
+        iterator++;
     } // end of while loop
 
     //we modify the offset before returning.
