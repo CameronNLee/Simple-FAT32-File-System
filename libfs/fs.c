@@ -516,6 +516,10 @@ int fs_read(int fd, void *buf, size_t count)
         return -1;
     }
 
+    //arary that holds where fat blocks are.
+    uint16_t fat_location[2048];
+
+
     // We need to get the amount of data blocks
     // associated with @filename pointed at by fd_index,
     // Which is the file size/4096 + 1 (b/c div truncates the result).
@@ -543,6 +547,16 @@ int fs_read(int fd, void *buf, size_t count)
     ++db_index; // because db counts up from 0
     db_index = db_index + sb->root_dir_index;
 
+    //We now populate our fat_location array.
+    fat_location[0] = db_index; //first one is always db_index
+
+    for(int i = 1; i < amnt_data_blocks; i++){
+        if(fat_location[i-1] != 65535){
+          fat_location[i] = fat_location[i-1];
+        }
+    }
+
+
     // these two are if we read in multiple blocks.
     size_t buf_offset = 0;
     size_t multi_count = count;
@@ -565,7 +579,10 @@ int fs_read(int fd, void *buf, size_t count)
     size_t block_offset = fd_offset/BLOCK_SIZE;
     size_t byte_offset = fd_offset - (block_offset*BLOCK_SIZE);
     size_t offset_data_block = amnt_data_blocks - block_offset;
-    size_t offset_db_index = db_index + block_offset;
+//    size_t offset_db_index = db_index + block_offset;
+
+    size_t offset_db_index = block_offset;
+
 
     if (fd_offset != 0) {
         // we reset bytes_in_file to where it's offset to.
@@ -579,7 +596,7 @@ int fs_read(int fd, void *buf, size_t count)
                 break;
             }
 
-            if (block_read(offset_db_index, bounce_buf) == -1) {
+            if (block_read(fat_location[offset_db_index], bounce_buf) == -1) {
                 return -1;
             }
             //Now that we have offset'd all the blocks,
@@ -652,12 +669,13 @@ int fs_read(int fd, void *buf, size_t count)
     // so we keep on reading in data blocks into bounce_buf
     // then we write the bounce_buf into buf, and then increment the offset for
     // buf.
+    int iterator = 0; //used for iterating thru the fat_location
     while (amnt_data_blocks != 0) {
         if (buf_offset == count) {
             break;
         }
 
-        if (block_read(db_index, bounce_buf) == -1) {
+        if (block_read(fat_location[iterator], bounce_buf) == -1) {
             free(bounce_buf);
             return -1;
         }
