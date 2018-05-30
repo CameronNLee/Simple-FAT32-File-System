@@ -115,7 +115,10 @@ variable. This is why we linked the fd table to the root entry index: it
 allows us to access the various attributes of a file purely through the fd
 table.
 
-
+To manually set the offset in ***fs_lseek()***, we first make a check if the
+offset is greater than the filesize tied to the **fd** argument variable. If
+it isn't, then we assign the **offset** arg variable to **fd**'s offset member
+variable located in **fd_table**.
 
 ## Phase 4
 
