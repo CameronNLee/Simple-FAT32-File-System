@@ -173,6 +173,35 @@ have an iterator initialized to 0, and then increment it by 1 each time in the
 while loop. The rest of the while loop is nearly identical, with some variable 
 names being the main difference.
 
+***fs_write()** was very similiar to the read part, a lot of the variable names
+were the same, and represented the same things; the main difference was that we
+had to update the FAT table's entries each time we create a new file. To do so,
+we had two functions, one that was used for when we needed to create one entry,
+***get_and_set_fat()***, the other, ***set_multi_fat()*** was used when we had 
+to set more than one entry in the FAT table. In ***set_multi_fat()***, we
+
+TODO: EXPLAIN SET MULTI FAT 
+
+In ***get_and_set_fat()***, we iterated through our FAT entries, and then once 
+we found an empty entry, we set that entry to **FAT_EOC**, and then we returned 
+the index of what we set. If we didn't find anything, we return 0. 
+
+Next, we populated **fat_location** with the indexes of the entries of the FAT, 
+the same way as we did in read. We then 
+
+TODO: Expalin our amnt data blocks check
+
+
+Our next scenario is writing to more than one data block. In here, our code is
+extremely similiar to the one in read. All of the conditional checks are the 
+same, as well as the way we iterate through our **fat_location**, and the 
+variable names and how we increment/decrement them are the same as well.The only
+different way was that we wrote instead of read. We first had a **bounce_buf**
+that held in a whole block that we read to it with **block_read**. We'd then 
+modify that bounce_buf by using ***memcpy()***, to copy our **buf** into it, and
+offsetting **buf** if necessary. We then finally used **block_write** to write 
+**bounce_buf** into the appropriate block in our file.
+
 ## Testing
 
 todo
