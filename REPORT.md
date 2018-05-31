@@ -122,7 +122,53 @@ variable located in **fd_table**.
 
 ## Phase 4
 
-todo
+In ***fs_read()***, we start by populating an array, called **fat_location**, 
+with where the datablock locations of the file are. We use this to as a guide to
+which blocks we should read in. We have a **block_offset** and **byte_offset**
+that calculates our offset in terms of blocks and bytes, rather than just bytes.
+Our functions then splits off into two if statements, if there's an offset, and 
+if there's no offset. 
+
+In both situations, we have a **bounce_buf** variable to hold the current data
+block, in which we then read the necessary amount from it into **buf**. Also, 
+we have **buf_offset**, which is the offset that we write to the **buf**. This
+is used when we read through multiple blocks.
+
+If there is an offset, we have a while loop, whose condition is that the total 
+amount of data blocks (**offset_data_block**) isn't equal to 0. The 
+**offset_data_block** gets decremented by the **block_offset**, because we want
+to skip the blocks we've already offsetted. We start reading from 
+**fat_location[block_offset]**,which is the amount of blocks we offsetted. 
+Then, if **count** is less than the difference of the block size and the byte 
+offset, we're reading all that's left of the block, so we call **memcpy()**, and 
+copy **bounce_buf** into **buf** There are two scenarios here, either the 
+**count** is the limiting number, or the **bytes_in_file**, which is the file 
+size, is the limiting number. We return whatever amount we wrote, and increment 
+the file's offset by the same amount.
+           
+The other case is if we read more than one block. Here, we divided it into two 
+cases. If we offsetted into the middle of a block (ie if **byte_offset** > 0), 
+we finish reading that block, using the same logic as before. This time, since 
+we do not return, we have two variables, in which we decrement: **multi_count**, 
+which keeps track of how much count we still have to read, and increment 
+**buf_offset**. Then we set **byte_offset** to 0, ensuring we won't trigger this 
+if statement again. We have one condition, that is if our **multi_count** goes 
+to 0. We just return the **multi_count**, free **bounce_buf**, and increment the 
+file's offset by the **multi_count**.
+
+Now, there's still two cases left, if the **multi_count** is still greater than
+the block size, we just keep on writing to buf, incrementing and decrementing 
+**buf_offset** and **multi_count** by the block size. Once **multi_count** is
+less than the block size, that means we just read up to the middle of the block,
+we do one last read, reading up to **multi_count** instead of the block size,
+and then we return the count, as well as free the **bounce_buf**. We then 
+decrement the **offset_data_block** by one.
+
+If the offset is zero, the process is very similiar, and much simpler. Instead
+of using **block_offset** to iterate through our array of FAT locations, we just
+have an iterator initialized to 0, and then increment it by 1 each time in the
+while loop. The rest of the while loop is nearly identical, with some variable 
+names being the main difference.
 
 ## Testing
 
