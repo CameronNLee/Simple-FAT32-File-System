@@ -45,7 +45,7 @@ member variables.
 
 ***fs_create()***, much like the the other functions throughout phase 2 and
 phase 3, makes two checks involving the **filename** variable: whether it
-is too long in length (> 16 bytes), and if it is not null-terminated. It also
+is too long in length (>= 16 bytes), and if it is not null-terminated. It also
 makes an additional check making sure if the filename already exists in one
 of the root entries. If so, we return -1, since we do not want to create file
 duplicates. This check is achieved via a helper function ***file_search()***,
@@ -70,18 +70,21 @@ separate cases:
 
 One case is if the amount of data blocks associated with **filename** is equal
 to exactly 1 (i.e. filesize is less than or equal to **BLOCK_SIZE**). Here, we
-malloc and memset a void pointer buffer called **empty** to be filled with
-zero values, then write to the sole data block index associated with filename.
-Hence, this is how we "free" the data block: by simply wiping its byte values
-to zero. 
+"free" a single fat entry by passing in the data block index value to the fat
+array entry index. If we get a match that equals 0xFFFF, then we set the entry
+value to 0.
 
-To "free" the fat entry, we pass in the data block index value to the fat array
-entries index. If we get a match that equals 0xFFFF, then we set the entry
-value to 0. Finally, we "free" the root entry associated by passing in the
+The other case is if the amount of data blocks associated with **filename** is
+greater than 1. If so, then we "walk" through the entries and set the values
+held to 0, thus "freeing" them. This process is held inside a while loop that
+runs until **amt_data_blocks** becomes 0 (we decrement it each iteration). This
+way, the program knows when to stop freeing. For example, if the amount of
+data blocks was 3, the program then knows it will free 3 fat entries, no more,
+no less.
+
+Finally, we "free" the root entry associated by passing in the
 variable **entry** as an index for **root_entries**, and setting the members
 to 0.
-
-The other case is <finish here>.
 
 ***fs_ls()*** was relatively simple, where we just iterate through the root
 entries. We only print the relevant information if the root entry index's
