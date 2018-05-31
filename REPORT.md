@@ -207,8 +207,18 @@ offsetting **buf** if necessary. We then finally used **block_write** to write
 todo
 
 ## Summary
+We finished all parts of our project, with Phase 4 being signifigantly harder
+than Phases 1-3. The hardest part in this project was accounting for all the 
+different scenarios that could occur in both read and write. Everytime we 
+thought we were finished with read, we discovered a new way that could break our
+function, and then we had to fix that bug. This took up a majority of our time,
+and the same was true for the write portion.
 
-hmm
+Overall, we feel that this project was a really good way to learn more about how
+file systems work, and we felt that we've grown as programmers throught this
+class as well. There's been a noticeable improvement from where we couldn't 
+finish Project 1, to where we now managed to finish Project 4, which the 
+Professor described as the hardest project for this class.
 
 ## Sources: 
 
