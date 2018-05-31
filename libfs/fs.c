@@ -14,8 +14,9 @@
 int file_search(const char* filename);
 int get_root_entry(const char* filename);
 int get_fd_table_index(int fd);
-size_t get_and_set_fat();
-
+size_t get_and_set_fat(size_t first_db_num);
+int set_multi_fat (size_t *first_db_num, size_t offset_data_block);
+int get_next_fat(int updated_i, int updated_j);
 struct superblock {
     uint8_t signature[8]; // ECS150FS
     uint16_t total_blocks;
@@ -57,8 +58,7 @@ struct fd {
 // fs_mount() hasn't been called yet.
 static struct superblock* sb = NULL;
 static struct fat_block* fat_array = NULL;
-// static struct data_block* db_array = NULL;
-static struct root root_entries[FS_FILE_MAX_COUNT]; // 128 entries for 1 root block
+static struct root root_entries[FS_FILE_MAX_COUNT];// 128 for 1 root block
 static struct fd fd_table[FS_OPEN_MAX_COUNT]; // maximum 32 fd's open at a time
 
 int fs_mount(const char *diskname)
@@ -290,38 +290,41 @@ int fs_delete(const char *filename)
     db_index += sb->root_dir_index;
     ++db_index; // skip over DB #0
 
-    // TODO free the data and free the FAT
-
-    // "free" the data block associated with
-    // the file by overwriting the entire block
-    // with 0's. (note: only if the # of DBs
-    // associated with the file being deleted
-    // is exactly equal to 1.)
-    void *empty = malloc(BLOCK_SIZE);
-    memset(empty, 0, BLOCK_SIZE);
-
-    if (block_write(db_index, empty)) {
-        return -1;
-    }
-
     // freeing the associated fat entry/entries
     // by replacing them with a 0 value
 
-    // if just freeing a single fat entry pointing to
-    // a single data block:
 
-    // note: there is a way to calculate this without
-    // relying on the i loop
+    size_t first_db_num_cpy = first_db_num; // for the while loop below
     int fat_block_index = 0;
-    if (first_db_num >= 2048) {
-        while (first_db_num != 0) {
+    if (first_db_num_cpy >= 2048) {
+        while (first_db_num_cpy != 0 && first_db_num_cpy != FAT_EOC) {
             ++fat_block_index;
-            first_db_num /= 2048;
+            first_db_num_cpy /= 2048;
         }
     }
 
-    if (fat_array[fat_block_index].entries[first_db_num] == FAT_EOC) {
-        fat_array[fat_block_index].entries[first_db_num] = 0;
+    int root_index = get_root_entry(filename);
+    int amt_data_blocks = root_entries[root_index].filesize / BLOCK_SIZE + 1;
+    if (amt_data_blocks > 1) {
+        // freeing multiple fat entries
+        // by setting them to 0
+        size_t next_entry = first_db_num; // 6
+        size_t cur_entry = next_entry; // 6
+        // 6 9 12
+        while (amt_data_blocks != 0) {
+            next_entry = fat_array[fat_block_index].entries[cur_entry];
+            fat_array[fat_block_index].entries[cur_entry] = 0;
+            cur_entry = next_entry;
+            amt_data_blocks--;
+        }
+    }
+    else {
+        // freeing a single fat entry pointing to
+        // a single data block
+        if (fat_array[fat_block_index].entries[first_db_num] == FAT_EOC) {
+            fat_array[fat_block_index].entries[first_db_num] = 0;
+        }
+
     }
 
     // freeing the root entry
@@ -459,51 +462,63 @@ int fs_write(int fd, void *buf, size_t count)
     if (count == 0) { // don't bother writing anything
         return 0;
     }
+    root_entries[fd_table[fd_index].root_entry].filesize += (uint32_t)count;
 
-    root_entries[fd_table[fd_index].root_entry].filesize = (uint32_t)count;
     //amount of data we're attempting to write
-    size_t amt_data_blocks = (count / BLOCK_SIZE) + 1; // due to truncation
+    size_t amnt_data_blocks = (count / BLOCK_SIZE) + 1; // due to truncation
     size_t buf_offset = 0;
-    size_t multicount = count;
+    size_t multi_count = count;
     void *bounce_buf = malloc(BLOCK_SIZE); //used to hold a temp data block.
-
-
-    // size_t get_and_set_fat() {
-    //     for (int i = 0; i < sb->total_fat_blocks; ++i) {
-    //         for (int j = 0; j < 2048; ++j) { // 2048 entries per FAT block
-    //             if (fat_array[i].entries[j] == 0) {
-    //                 // assign the file less than 4096 bytes
-    //                 // to a singular, proper FAT entry, and set that
-    //                 // to 0xFFFF.
-    //                 // if (filesize / BLOCK_SIZE )
-    //                 fat_array[i].entries[j] = FAT_EOC;
-    //                 return (size_t)j;
-    //             }
-    //         } // end of j loop
-    //     } // end of i loop
-    //     return 0; // no free fat_entries available
-    //     // => no free data blocks available.
-    // }
-
 
     //we have these vars b/c ugly to keep writing them out.
     size_t first_db_num =
-        root_entries[fd_table[fd_index].root_entry].first_db_num;
+            root_entries[fd_table[fd_index].root_entry].first_db_num;
     size_t fd_offset = (size_t)fd_table[fd_index].offset;
     uint32_t filesize = root_entries[fd_table[fd_index].root_entry].filesize;
 
+
+    size_t first_db_num_cpy = first_db_num; // for the while loop below
+    int fat_block_index = 0;
+    if (first_db_num_cpy >= 2048 && first_db_num_cpy != FAT_EOC) {
+        while (first_db_num_cpy != 0) {
+            ++fat_block_index;
+            first_db_num_cpy /= 2048;
+        }
+    }
 
     size_t block_offset = fd_offset/BLOCK_SIZE;
     size_t byte_offset = fd_offset - (block_offset*BLOCK_SIZE);
     size_t offset_data_block = amnt_data_blocks - block_offset;
 
+    size_t offset_db_index = block_offset;
+
 
     //arary that holds where fat entries are.
     uint16_t fat_location[2048 * sb->total_fat_blocks];
-    fat_location[0] = (uint16_t)first_db_num;
+
 
     //fat_location[fat_block_index] = (uint16_t)db_index;
     //first one is always db_index
+
+    // free_fat represents the first-fit fat entry (or entries)
+    // index (or indices) for the file being added, depending upon the
+    // filesize. in practice, this returns the jth entry of the fat_array.
+    size_t free_fat = 0;
+    if (amnt_data_blocks > 1) {
+        if (set_multi_fat(&first_db_num, offset_data_block) == -1) {
+            return 0; // no more free fat entries to write to
+        }
+        root_entries[fd_table[fd_index].root_entry].first_db_num
+                = (uint16_t)first_db_num;
+
+        fat_location[0] = (uint16_t) first_db_num;
+    }
+    else {
+        free_fat = get_and_set_fat(first_db_num);
+        fat_location[0] = (uint16_t) free_fat;
+    }
+
+    // size_t db_index = free_fat + sb->root_dir_index;
 
     //subsequent data blocks are simply the value in that fat arary location
     for(int i = 1; i < amnt_data_blocks; i++){
@@ -512,117 +527,125 @@ int fs_write(int fd, void *buf, size_t count)
     }
 
 
-    // free_fat represents the first-fit fat entry (or entries)
-    // index (or indices) for the file being added, depending upon the
-    // filesize. in practice, this returns the jth entry of the fat_array.
-    size_t free_fat = 0;
+    if (amnt_data_blocks == 1 && first_db_num == FAT_EOC) {
+        if (free_fat == 0) {
+            return 0; // cannot write; FAT is completely full
+        }
+        // db_index will be the index of the DB we are writing to
+        size_t db_index = free_fat + sb->root_dir_index;
+        ++db_index; // skip over DB #0
+        // update the first data block num
+        root_entries[fd_table[fd_index].root_entry].first_db_num
+                = (uint16_t) free_fat;
+        block_write(db_index, buf);
+    }
+/*    else {
 
+         if (free_fat == first_db_num) {
+            // entering the above if statement means
+            // don't bother updating the first data block num:
+            // it's the same exact one
+            if (fd_offset + count > BLOCK_SIZE) {
+                // this necessitates the writing to another data block, as
+                // the amount you wish to write + the offset exceeds the
+                // boundaries of the sole DB you are inside.
 
+                // if count > BLOCK_SIZE. then we need to allocate
+                // n additional data blocks depending on the size of count.
 
+                // pass in a 0 value to the func. Normally, we'd pass in
+                // the first_db_num variable like we did above, to test if
+                // we encounter a sole DB num match inside a single FAT
+                // entry. This way we get the same free_fat value if we
+                // just want to write to the same block. However,
+                // this time we need to create a new block in this if
+                // statement. Thus, get a free fat entry returned that is
+                // distinct from the first_db_num by passing in a 0.
+                // then update the db_index.
+                fat_array[0].entries[first_db_num] = (uint16_t)first_db_num;
+                free_fat = get_and_set_fat(0);
+                db_index = free_fat + sb->root_dir_index;
+                block_write(db_index, buf);
+            }
+            else {
+                block_write(db_index, buf + fd_offset);
+            }
+        }
+    }*/
 
     //so in here we don't need to create new entries in fat array
-    if(count + fd_offset < filesize){
-      while(offset_data_block != 0){
-          //This condition is if we just happen to write
-          // all that's left of one block
-          if(count <= BLOCK_SIZE - byte_offset){
-            //in the case we offset to the middle of the block, we gotta
-            //block read, then memcpy it, then block write back the whole block
-            if (block_read(fat_location[offset_db_index]
-                  + sb->root_dir_index + 1,
-                           bounce_buf) == -1) {
-                return -1;
+    if(count + fd_offset <= filesize){
+        while(offset_data_block != 0){
+            //This condition is if we just happen to write
+            // all that's left of one block
+            if(count <= BLOCK_SIZE - byte_offset){
+                //in the case we offset to the middle of the block, we gotta
+                //block read, then memcpy it, then block write back the whole block
+                if (block_read(fat_location[offset_db_index]
+                               + sb->root_dir_index + 1,
+                               bounce_buf) == -1) {
+                    return -1;
+                }
+                memcpy(bounce_buf + byte_offset, buf, BLOCK_SIZE - byte_offset);
+                block_write(fat_location[offset_db_index] + sb->root_dir_index + 1,
+                            bounce_buf);
+                fd_table[fd_index].offset += count;
+                free(bounce_buf);
+                return (int)count;
             }
-            memcpy(bounce_buf + byte_offset, buf, BLOCK_SIZE - byte_offset);
-            block_write(fat_location[offset_db_index] + sb->root_dir_index + 1,
-                           bounce_buf);
-            fd_table[fd_index].offset += count;
-            free(bounce_buf);
-            return (int)count;
-          }
 
-          else{
-            if(byte_offset > 0){
-              //finish writing to the remaining block. we read a block,
-              //modify the block after the offset, then write to it
-              if (block_read(fat_location[offset_db_index]
-                    + sb->root_dir_index + 1,
-                             bounce_buf) == -1) {
-                  return -1;
-              }
-              memcpy(bounce_buf + byte_offset, buf, BLOCK_SIZE - byte_offset);
-              block_write(fat_location[offset_db_index] + sb->root_dir_index + 1,
-                             bounce_buf);
-              buf_offset = buf_offset + (BLOCK_SIZE - byte_offset);
-              multi_count = multi_count - (BLOCK_SIZE - byte_offset);
-              offset_db_index++;
-              byte_offset = 0; //we'll never use this again
-              // if multi_count 0, we just return.
-              if (multi_count == 0) {
-                  fd_table[fd_index].offset += multi_count;
-                  free(bounce_buf);
-                  return (int)multi_count;
-              }
+            else{
+                if(byte_offset > 0){
+                    //finish writing to the remaining block. we read a block,
+                    //modify the block after the offset, then write to it
+                    if (block_read(fat_location[offset_db_index]
+                                   + sb->root_dir_index + 1,
+                                   bounce_buf) == -1) {
+                        return -1;
+                    }
+                    memcpy(bounce_buf + byte_offset, buf, BLOCK_SIZE - byte_offset);
+                    block_write(fat_location[offset_db_index] + sb->root_dir_index + 1,
+                                bounce_buf);
+                    buf_offset = buf_offset + (BLOCK_SIZE - byte_offset);
+                    multi_count = multi_count - (BLOCK_SIZE - byte_offset);
+                    offset_db_index++;
+                    byte_offset = 0; //we'll never use this again
+                    // if multi_count 0, we just return.
+                    if (multi_count == 0) {
+                        fd_table[fd_index].offset += multi_count;
+                        free(bounce_buf);
+                        return (int)multi_count;
+                    }
+                }
+                    //In here, we just write a whole block
+                else if(multi_count > BLOCK_SIZE){
+                    //we write bounce_buf to block_write
+                    memcpy(bounce_buf, buf+buf_offset, BLOCK_SIZE);
+                    block_write(fat_location[offset_db_index]
+                                + sb->root_dir_index + 1, bounce_buf);
+                    buf_offset = buf_offset + BLOCK_SIZE;
+                    multi_count = multi_count - BLOCK_SIZE;
+                    offset_db_index++;
+                }
+                else{ //we just write what we can now. so take the curernt block,
+                    //change the first few values, then write it back
+                    if (block_read(fat_location[offset_db_index]
+                                   + sb->root_dir_index + 1,
+                                   bounce_buf) == -1) {
+                        return -1;
+                    }
+                    memcpy(bounce_buf, buf+buf_offset, multi_count);
+                    block_write(fat_location[offset_db_index]
+                                + sb->root_dir_index + 1, bounce_buf);
+                    fd_table[fd_index].offset += count;
+                    free(bounce_buf);
+                    return (int) count;
+                }
             }
-            //In here, we just write a whole block
-            else if(multi_count > BLOCK_SIZE){
-                //we write bounce_buf to block_write
-                memcpy(bounce_buf, buf+buf_offset, BLOCK_SIZE);
-                block_write(fat_location[offset_db_index]
-                  + sb->root_dir_index + 1, bounce_buf);
-                  buf_offset = buf_offset + BLOCK_SIZE;
-                  multicount = multi_count - BLOCK_SIZE;
-                  offset_db_index++;
-            }
-            else{ //we just write what we can now. so take the curernt block,
-              //change the first few values, then write it back
-              if (block_read(fat_location[offset_db_index]
-                    + sb->root_dir_index + 1,
-                             bounce_buf) == -1) {
-                  return -1;
-              }
-              memcpy(bounce_buf, buf+buf_offset, multi_count);
-              block_write(fat_location[offset_db_index]
-                + sb->root_dir_index + 1, bounce_buf);
-              fd_table[fd_index].offset += count;
-              free(bounce_buf);
-              return (int) count;
-              }
-          }
-          offset_data_block--;
-      }
+            offset_data_block--;
+        }
     }
-
-
-
-    // //if it's just one we only create one.
-    // if (amt_data_blocks == 1) {
-    //
-    //     //if the file's DB already has stuff in it
-    //     if(first_db_num != FAT_EOC){
-    //       if()
-    //     }
-    //
-    //     //otherwise we create it.
-    //     else{
-    //       free_fat = get_and_set_fat();
-    //       if (free_fat == 0) {
-    //           return 0; // cannot write; FAT is completely full
-    //       }
-    //
-    //       // update the first data block index
-    //       root_entries[fd_table[fd_index].root_entry].first_db_num
-    //               = (uint16_t)free_fat;
-    //       size_t db_index = free_fat + sb->root_dir_index;
-    //       ++db_index; // skip over DB #0
-    //       block_write(db_index, buf);
-    //     }
-    // }
-    //
-    // else {
-    //   //We're trying to write to multiple blocks.
-    //   //if FAT block already
-    // }
+    fd_table[fd_index].offset += count;
     return (int)count;
 }
 
@@ -672,14 +695,18 @@ int fs_read(int fd, void *buf, size_t count)
     ++db_index; // because db counts up from 0
     db_index = db_index + sb->root_dir_index;
 
-    //We now populate our fat_location array.
+    // We now populate our fat_location array.
     size_t first_db_num
             = root_entries[fd_table[fd_index].root_entry].first_db_num;
+    size_t first_db_num_cpy = first_db_num; // for the while loop below
     int fat_block_index = 0; //get which FAT block DB is located in
-    if (first_db_num >= 2048) {
-        while (first_db_num != 0) {
+
+    // we use a cpy of first_db_num since we don't want to modify
+    // first_db_num itself; we will use first_db_num later
+    if (first_db_num_cpy >= 2048) {
+        while (first_db_num_cpy != 0) {
             ++fat_block_index;
-            first_db_num /= 2048;
+            first_db_num_cpy /= 2048;
         }
     }
 
@@ -949,9 +976,20 @@ int get_fd_table_index(int fd) {
     return -1; // fail state: could not find opened fd
 }
 
-size_t get_and_set_fat() {
+size_t get_and_set_fat(size_t first_db_num) {
     for (int i = 0; i < sb->total_fat_blocks; ++i) {
         for (int j = 0; j < 2048; ++j) { // 2048 entries per FAT block
+
+            if (first_db_num != FAT_EOC
+                && fat_array[i].entries[first_db_num] == FAT_EOC) {
+                return first_db_num;
+            }
+
+            if (fat_array[i].entries[j] == first_db_num
+                    && first_db_num != FAT_EOC) {
+                return first_db_num;
+            }
+
             if (fat_array[i].entries[j] == 0) {
                 // assign the file less than 4096 bytes
                 // to a singular, proper FAT entry, and set that
@@ -962,6 +1000,76 @@ size_t get_and_set_fat() {
             }
         } // end of j loop
     } // end of i loop
+
     return 0; // no free fat_entries available
+    // => no free data blocks available.
+}
+
+int set_multi_fat (size_t *first_db_num, size_t offset_data_block) {
+
+    int free_entry_check = 0;
+    for (int i = 0; i < sb->total_fat_blocks; ++i) {
+        if (offset_data_block == 0) {
+            break;
+        }
+
+        for (int j = 0; j < 2048; ++j) {
+            if (fat_array[i].entries[j] == 0) {
+                // contig. free FAT entries
+                if (fat_array[i].entries[j + 1] == 0) {
+                    fat_array[i].entries[j] = (uint16_t) (j+1);
+
+                    // means first_db_num hasn't been set yet
+                    if (*first_db_num == FAT_EOC) {
+                        // only enters here once
+                        *first_db_num = (size_t)j;
+                    }
+
+                    offset_data_block--;
+                }
+                else {
+                    // non-contiguous case
+                    // need some helper function to iterate from
+                    // where we are now until it finds the next
+                    // free fat entry. Then store this in free_entry_check.
+                    free_entry_check = get_next_fat(i, j+1);
+                    if (free_entry_check == -1) {
+                        return -1; // no more free entries
+                    }
+                    fat_array[i].entries[j] = (uint16_t)free_entry_check;
+
+                    // means first_db_num hasn't been set yet
+                    if (*first_db_num == FAT_EOC) {
+                        // only enters here once
+                        *first_db_num = (size_t)j;
+                    }
+
+                    // update j so we don't iterate through unnecessary
+                    // entries (any entry before get_next_fat() )
+                    j = fat_array[i].entries[j] - 1;
+                    --offset_data_block;
+                }
+            }
+
+            // the last entry should be set to 0xFFFF
+            if (offset_data_block == 0) {
+                fat_array[i].entries[j] = FAT_EOC;
+                break;
+            }
+
+        } // j loop end
+    } // i loop end
+    return 0; // success condition
+}
+
+int get_next_fat(int updated_i, int updated_j) {
+    for (int i = updated_i; i < sb->total_fat_blocks; ++i) {
+        for (int j = updated_j; j < 2048; ++j) {
+            if (fat_array[i].entries[j] == 0) {
+                return (uint16_t)j;
+            }
+        }
+    }
+    return -1; // no free fat_entries available
     // => no free data blocks available.
 }
